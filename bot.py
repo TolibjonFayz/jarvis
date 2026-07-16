@@ -1,11 +1,11 @@
-"""Telegram bot: xabarlarni qabul qiladi, JARVIS'ga uzatadi, javobni yuboradi."""
 import asyncio
 import logging
 
-from telegram import Update
-from telegram.constants import ChatAction
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     filters,
@@ -15,6 +15,10 @@ from telegram.ext import (
 import config
 import memory
 import agent
+import moderation
+import nsfw
+import tools as jtools
+import userbot
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -75,6 +79,198 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i in range(0, len(reply), 4000):
         await update.message.reply_text(reply[i : i + 4000])
 
+    # Tayyorlangan (hali yuborilmagan) Telegram xabarlar uchun tasdiq tugmalari.
+    for sid, p in list(jtools.PENDING_SENDS.items()):
+        if p["chat_id"] != chat_id or p["shown"]:
+            continue
+        p["shown"] = True
+        kb = InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton("✅ Yuborish", callback_data=f"tgy:{sid}"),
+                InlineKeyboardButton("❌ Bekor", callback_data=f"tgn:{sid}"),
+            ]]
+        )
+        await update.message.reply_text(
+            f"📨 Qabul qiluvchi: {p['to_name']}\n\n\"{p['text']}\"\n\nYuborilsinmi?",
+            reply_markup=kb,
+        )
+
+
+async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tasdiq tugmalari: model aralashmaydi — to'g'ridan-to'g'ri kod yuboradi."""
+    q = update.callback_query
+    await q.answer()
+    if not _authorized(update):
+        return
+
+    action, _, sid_s = q.data.partition(":")
+    try:
+        sid = int(sid_s)
+    except ValueError:
+        return
+    p = jtools.PENDING_SENDS.pop(sid, None)
+    if p is None:
+        await q.edit_message_text("Bu so'rov eskirgan (bot qayta ishga tushgan bo'lishi mumkin).")
+        return
+
+    if action == "tgy":
+        try:
+            result = await asyncio.to_thread(userbot.send_message, p["to_id"], p["text"])
+            await q.edit_message_text(f"✅ {result}")
+        except Exception as e:
+            log.exception("Userbot yuborishda xato")
+            await q.edit_message_text(f"Xato: yuborilmadi — {e}")
+    else:
+        await q.edit_message_text(f"❌ Bekor qilindi ({p['to_name']} ga yuborilmadi).")
+
+
+async def _admin_exempt(context, chat_id, user):
+    """Admin/creator himoyasi (test rejimida o'chadi). Faqat bayroqda chaqiriladi."""
+    if config.MOD_TEST_MODE:
+        return False
+    try:
+        m = await context.bot.get_chat_member(chat_id, user.id)
+        return m.status in ("administrator", "creator")
+    except Exception:
+        return False
+
+
+async def _moderate(context, msg, user, reason):
+    """Buzilgan xabarni o'chiradi, ogohlantiradi, limitdan oshsa chiqaradi."""
+    try:
+        await msg.delete()
+    except Exception:
+        log.warning("Xabarni o'chira olmadim — bot guruhda admin emasga o'xshaydi")
+        return
+    await _warn_or_ban(context, msg.chat_id, user, reason)
+
+
+async def _warn_or_ban(context, chat_id, user, reason):
+    n = memory.add_warn(chat_id, user.id)
+    name = user.mention_html()
+    try:
+        if n > config.MOD_WARN_LIMIT:
+            await context.bot.ban_chat_member(chat_id, user.id)
+            memory.reset_warns(chat_id, user.id)
+            await context.bot.send_message(
+                chat_id,
+                f"🚫 {name} guruhdan chiqarildi.\n"
+                f"Sabab: {reason} — {config.MOD_WARN_LIMIT} ta ogohlantirishdan "
+                "keyin ham davom etdi. Guruhda hurmat saqlanadi.",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await context.bot.send_message(
+                chat_id,
+                f"⚠️ {name}, xabaringiz o'chirildi.\n"
+                f"Sabab: {reason}. Ogohlantirish: {n}/{config.MOD_WARN_LIMIT}. "
+                "Yana takrorlansa guruhdan chiqarilasiz.",
+                parse_mode=ParseMode.HTML,
+            )
+    except Exception:
+        log.exception("Moderatsiya xabari/ban ishlamadi (huquq yetarlimi?)")
+
+
+def _media_file_id(msg):
+    """Tekshirish uchun rasm file_id + kengaytma. Video/animatsiya -> thumbnail."""
+    if msg.photo:
+        return msg.photo[-1].file_id, ".jpg"
+    if msg.video and msg.video.thumbnail:
+        return msg.video.thumbnail.file_id, ".jpg"
+    if msg.animation and msg.animation.thumbnail:
+        return msg.animation.thumbnail.file_id, ".jpg"
+    if msg.sticker:
+        if not msg.sticker.is_animated and not msg.sticker.is_video:
+            return msg.sticker.file_id, ".webp"
+        if msg.sticker.thumbnail:
+            return msg.sticker.thumbnail.file_id, ".jpg"
+    if msg.document:
+        mt = msg.document.mime_type or ""
+        if mt.startswith("image/"):
+            return msg.document.file_id, ".jpg"
+        if mt.startswith("video/") and msg.document.thumbnail:
+            return msg.document.thumbnail.file_id, ".jpg"
+    return None, None
+
+
+async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Matn moderatsiyasi: so'kinish/haqorat. Guruh xabarlari JARVIS'ga BORMAYDI."""
+    msg = update.effective_message
+    if not msg or not msg.text or not msg.from_user:
+        return
+    user = msg.from_user
+    log.info("GURUH matn [%s]: %s: %s", msg.chat_id, user.first_name, msg.text)
+
+    if user.id == config.OWNER_ID and not config.MOD_TEST_MODE:
+        log.info("  -> egasi (OWNER), o'tkazib yuborildi. Sinash uchun MOD_TEST_MODE=1")
+        return
+
+    bad, reason = await asyncio.to_thread(moderation.check_message, msg.text)
+    if not bad:
+        return
+    if await _admin_exempt(context, msg.chat_id, user):
+        return
+    await _moderate(context, msg, user, reason)
+
+
+async def on_group_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rasm/video/sticker moderatsiyasi: 18+ kontent + caption so'kinishlari."""
+    msg = update.effective_message
+    if not msg or not msg.from_user:
+        return
+    user = msg.from_user
+    if user.id == config.OWNER_ID and not config.MOD_TEST_MODE:
+        return
+
+    reason = ""
+    # 1) Caption (rasm ostidagi yozuv) so'kinishли bo'lishi mumkin.
+    if msg.caption:
+        bad_c, r_c = await asyncio.to_thread(moderation.check_message, msg.caption)
+        if bad_c:
+            reason = r_c
+    # 2) Rasm/video NSFW tekshiruvi (lokal NudeNet).
+    if not reason:
+        fid, suffix = _media_file_id(msg)
+        if fid:
+            try:
+                f = await context.bot.get_file(fid)
+                data = bytes(await f.download_as_bytearray())
+                bad_n, r_n = await asyncio.to_thread(nsfw.is_nsfw_bytes, data, suffix)
+                if bad_n:
+                    reason = r_n
+                    log.info("NSFW aniqlandi [%s]: %s", msg.chat_id, user.first_name)
+            except Exception:
+                log.warning("Media yuklab/tekshirib bo'lmadi — o'tkazib yuborildi")
+
+    if not reason:
+        return
+    if await _admin_exempt(context, msg.chat_id, user):
+        return
+    await _moderate(context, msg, user, reason)
+
+
+async def on_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Yangi a'zo qo'shilganda profil rasmini 18+ ga tekshiradi."""
+    msg = update.effective_message
+    if not msg or not msg.new_chat_members:
+        return
+    for member in msg.new_chat_members:
+        if member.is_bot or member.id == config.OWNER_ID:
+            continue
+        try:
+            photos = await context.bot.get_user_profile_photos(member.id, limit=1)
+            if not photos.total_count:
+                continue
+            ph = photos.photos[0][-1]  # birinchi rasmning eng katta o'lchami
+            f = await context.bot.get_file(ph.file_id)
+            data = bytes(await f.download_as_bytearray())
+        except Exception:
+            continue
+        bad, _ = await asyncio.to_thread(nsfw.is_nsfw_bytes, data, ".jpg")
+        if bad:
+            log.info("Yangi a'zo 18+ profil rasm [%s]: %s", msg.chat_id, member.first_name)
+            await _warn_or_ban(context, msg.chat_id, member, "18+ profil rasmi")
+
 
 async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
     """Har 30 soniyada vaqti kelgan eslatmalarni yuboradi."""
@@ -95,7 +291,41 @@ def main():
     app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    app.add_handler(CallbackQueryHandler(on_button))
+    # Shaxsiy chat -> JARVIS agent; guruhlar -> faqat moderatsiya.
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, on_message
+        )
+    )
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
+            on_group_message,
+        )
+    )
+    # Yangi a'zo profil rasmi tekshiruvi.
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & filters.StatusUpdate.NEW_CHAT_MEMBERS,
+            on_new_member,
+        )
+    )
+    # Rasm/video/sticker NSFW (18+) moderatsiyasi.
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & (
+                filters.PHOTO
+                | filters.VIDEO
+                | filters.ANIMATION
+                | filters.Sticker.ALL
+                | filters.Document.IMAGE
+                | filters.Document.VIDEO
+            ),
+            on_group_media,
+        )
+    )
 
     # Eslatmalarni tekshiruvchi fon vazifasi.
     if app.job_queue:

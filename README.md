@@ -99,11 +99,69 @@ Har yangi imkoniyat = yangi **tool** (`tools.py` ga qo'shasan).
 
 ---
 
+## Userbot: shaxsiy akkaunt (2-bosqich) ✅
+
+JARVIS sening SHAXSIY Telegram akkauntingdan suhbatlarni o'qiy oladi va
+(faqat sen tasdiqlaganingdan keyin!) xabar yubora oladi.
+
+**Ulash (bir marta):**
+1. https://my.telegram.org ga kir (o'z raqaming bilan)
+2. **API development tools** → ilova yarat (nomi ixtiyoriy) → `api_id` va `api_hash` beradi
+3. `.env` ga qo'sh:
+   ```
+   TG_API_ID=1234567
+   TG_API_HASH=abcdef1234567890
+   ```
+4. Terminalda: `python setup_userbot.py` → telefon raqam (+998...) → Telegram'dan
+   kelgan kod (2FA bo'lsa parol ham)
+5. Botni qayta ishga tushir: `python bot.py`
+
+**Tool'lar:** `tg_chats` (suhbatlar), `tg_read` (xabarlarni o'qish),
+`tg_send` + `tg_confirm` (xabar yuborish — 2 bosqichli, tasdiqsiz KETMAYDI).
+
+⚠️ **Diqqat:**
+- `data/userbot.session` fayli — akkauntingga to'liq kirish kaliti. Hech kimga berma!
+- Telegram spam/avtomatik ommaviy xabarlarni ban qiladi. JARVIS'ni faqat o'qish va
+  yakka xabarlar uchun ishlat — ommaviy yuborish qildirma.
+
+## Guruh moderatori 🛡️
+
+Botni guruhga qo'shsang, so'kinish/haqoratli xabarlarni avtomatik o'chiradi,
+buzg'unchini ogohlantiradi va takrorlansa guruhdan chiqaradi.
+
+**Qanday ulash:**
+1. Botni guruhga qo'sh
+2. Botni **admin** qil, quyidagi huquqlar bilan:
+   - **Delete messages** (xabar o'chirish)
+   - **Ban users** (a'zolarni chiqarish)
+3. Tayyor — bot avtomatik ishlaydi. Sozlash shart emas.
+
+**Nimalarni tekshiradi:**
+- **Matn** — so'kinish/haqorat: (1) so'zlar ro'yxati (bepul, bir zumda);
+  (2) AI tahlil (`llama-3.1-8b-instant`, alohida budjet) — nozik haqoratlar
+- **Rasm/video/sticker** — 18+ (nude/shahvoniy) kontent: lokal NudeNet
+  (bepul, offline, Groq token yemaydi, rasm hech qayerga yuborilmaydi)
+- **Yangi a'zo** — qo'shilganda profil rasmi 18+ ga tekshiriladi
+- Rasm ostidagi yozuv (caption) so'kinishlari ham tekshiriladi
+
+**Chora:**
+- 1-2 buzilish: xabar o'chiriladi + ogohlantirish (`MOD_WARN_LIMIT`, standart 2)
+- Keyingisi: guruhdan chiqariladi + sabab yoziladi
+- **Egasi (OWNER_ID) va guruh adminlari tegilmaydi**
+- Guruh xabarlari JARVIS "miya"siga bormaydi — faqat moderatsiya (token tejash)
+
+**Cheklovlar (halol):**
+- NudeNet ~95% aniq — kamdan-kam yanglishishi mumkin. Shuning uchun darrov ban
+  emas, ogohlantirish tizimi bor.
+- Videolarda faqat **muqova (thumbnail)** kadri tekshiriladi (tez). To'liq kadrlab
+  skanerlash ancha og'ir — kelajakda qo'shsa bo'ladi.
+- Ochiqroq (bikini/plaj) rasmlar odatda o'tadi; juda ochiq bo'lsa `nsfw.py` dagi
+  `_THRESHOLD` bilan sozlanadi.
+
 ## Keyingi bosqichlar (g'oyalar)
 
-- **2-bosqich:** Telegram *userbot* (Telethon) — o'z akkauntingdan xabar o'qish/yuborish
-- **3-bosqich:** Ovoz — Whisper (nutq→matn) + TTS (matn→ovoz)
-- **Boshqa tool'lar:** internetdan qidirish, kalendar, eslatma, ob-havo va h.k.
+- **Ovoz** — Whisper (nutq→matn) + TTS (matn→ovoz)
+- **Boshqa tool'lar:** valyuta kursi, yangiliklar, tarjima va h.k.
 
 ---
 

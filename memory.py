@@ -37,6 +37,14 @@ def init_db():
                 sent INTEGER DEFAULT 0
             )"""
         )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS warns (
+                chat_id INTEGER,
+                user_id INTEGER,
+                count INTEGER DEFAULT 0,
+                PRIMARY KEY (chat_id, user_id)
+            )"""
+        )
 
 
 # --- Suhbat tarixi (joriy suhbatni eslab turish uchun) ---
@@ -111,6 +119,30 @@ def due_reminders():
 def mark_reminder_sent(rid):
     with _conn() as c:
         c.execute("UPDATE reminders SET sent=1 WHERE id=?", (rid,))
+
+
+# --- Guruh moderatsiyasi: ogohlantirishlar hisobi ---
+
+def add_warn(chat_id, user_id):
+    """Ogohlantirishni oshirib, yangi sonni qaytaradi."""
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO warns (chat_id, user_id, count) VALUES (?,?,1) "
+            "ON CONFLICT(chat_id, user_id) DO UPDATE SET count = count + 1",
+            (chat_id, user_id),
+        )
+        row = c.execute(
+            "SELECT count FROM warns WHERE chat_id=? AND user_id=?",
+            (chat_id, user_id),
+        ).fetchone()
+    return row["count"] if row else 1
+
+
+def reset_warns(chat_id, user_id):
+    with _conn() as c:
+        c.execute(
+            "DELETE FROM warns WHERE chat_id=? AND user_id=?", (chat_id, user_id)
+        )
 
 
 def list_pending_reminders(chat_id):

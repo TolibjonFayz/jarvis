@@ -21,6 +21,32 @@ MOD_WARN_LIMIT = int(os.getenv("MOD_WARN_LIMIT", "2"))
 # Sinab bo'lgach .env da MOD_TEST_MODE=0 qilib qo'ying (yoki o'chiring).
 MOD_TEST_MODE = os.getenv("MOD_TEST_MODE", "0") == "1"
 
+# Video chuqur tekshiruvi: shu hajmgacha (MB) userbot yuklab, kadrlar namunasini
+# tekshiradi. Kattaroq videolar YUKLANMAYDI (kompyuter + DoS himoyasi) — faqat
+# muqova tekshiriladi. Katta = ko'proq video tekshiriladi, lekin sekinroq/ko'proq
+# internet sarflaydi.
+MOD_VIDEO_MAX_MB = int(os.getenv("MOD_VIDEO_MAX_MB", "200"))
+
+# True bo'lsa: hajmi chegaradan katta, tekshirib bo'lmaydigan videolar o'chiriladi
+# (qattiq siyosat). False (standart): faqat muqova tekshiriladi, o'chirilmaydi.
+MOD_BLOCK_BIG_VIDEO = os.getenv("MOD_BLOCK_BIG_VIDEO", "0") == "1"
+
+# CAS: yangi a'zoni ma'lum spamerlar bazasidan tekshirish (bepul).
+MOD_CAS = os.getenv("MOD_CAS", "1") == "1"
+
+# Kirish CAPTCHA: yangi a'zoning ovozi o'chiriladi, tugma bosib tasdiqlaydi.
+MOD_CAPTCHA = os.getenv("MOD_CAPTCHA", "1") == "1"
+MOD_CAPTCHA_SEC = int(os.getenv("MOD_CAPTCHA_SEC", "60"))  # tasdiqlash muddati
+
+# Xavfli linklarni o'chirish + ogohlantirish.
+MOD_LINKS = os.getenv("MOD_LINKS", "1") == "1"
+
+# --- Ovoz (STT + TTS) ---
+VOICE_REPLY = os.getenv("VOICE_REPLY", "1") == "1"  # javobni ovoz bilan ham yuborish
+VOICE_NAME = os.getenv("VOICE_NAME", "uz-UZ-SardorNeural")  # yoki uz-UZ-MadinaNeural
+VOICE_LANG = os.getenv("VOICE_LANG", "uz")  # Whisper tili ('' = avto-aniqlash)
+STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3")
+
 # Javob uchun maksimal token.
 # Groq tekin darajasi daqiqasiga ~8000 token beradi va bu "ajratilgan" javob
 # ham shu chegaraga kiradi. Shuning uchun past qo'ydik (429'ni kamaytiradi).

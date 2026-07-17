@@ -150,18 +150,65 @@ buzg'unchini ogohlantiradi va takrorlansa guruhdan chiqaradi.
 - **Egasi (OWNER_ID) va guruh adminlari tegilmaydi**
 - Guruh xabarlari JARVIS "miya"siga bormaydi — faqat moderatsiya (token tejash)
 
+### Xavfsizlik (yangi a'zolar + linklar)
+
+- 🛡️ **CAS** — yangi a'zoni ma'lum spamerlar bazasidan tekshiradi (bepul, api.cas.chat).
+  Spamer bo'lsa darrov chiqariladi.
+- 🤖 **Kirish CAPTCHA** — yangi a'zoning ovozi o'chiriladi; `MOD_CAPTCHA_SEC` soniya ichida
+  "Men odamman" tugmasini bosmasa chiqariladi. Botlarni to'xtatadi.
+- 🔞 **Profil rasm** — yangi a'zoning profil rasmi 18+ bo'lsa chiqariladi.
+- 🔗 **Xavfli linklar** — IP-manzilli, scam (free crypto/airdrop), yoki qora ro'yxatdagi
+  domenli linklar o'chiriladi + ogohlantiriladi. Qora ro'yxat: `data/blocklist.txt`
+  (har qatorda bitta domen).
+
+**Kerakli admin huquqlari:** xabar o'chirish, a'zolarni chiqarish (ban),
+a'zolarni cheklash (mute — CAPTCHA uchun).
+
+> ⚠️ CAPTCHA'ni sinash uchun **ikkinchi akkaunt** kerak — guruh yaratuvchisini
+> (egasini) Telegram cheklashga ruxsat bermaydi.
+
+**Video tekshiruvi (2 qatlam):**
+- **Muqova (thumbnail)** — barcha videolar uchun, tez (bot orqali).
+- **Chuqur skaner** — hajmi `MOD_VIDEO_MAX_MB` (standart 50MB) gacha videolar
+  userbot orqali yuklanib, 6 ta kadr namunasi tekshiriladi (opencv). Shu bilan 18+
+  narsa videoning o'rtasida bo'lsa ham topiladi.
+- **Ulkan videolar** (masalan 1GB) — YUKLANMAYDI (kompyuter + DoS himoyasi).
+  Faqat muqova tekshiriladi. `MOD_BLOCK_BIG_VIDEO=1` qo'ysang — tekshirib
+  bo'lmaydigan katta videolar avtomatik o'chiriladi (qattiq siyosat).
+
 **Cheklovlar (halol):**
 - NudeNet ~95% aniq — kamdan-kam yanglishishi mumkin. Shuning uchun darrov ban
   emas, ogohlantirish tizimi bor.
-- Videolarda faqat **muqova (thumbnail)** kadri tekshiriladi (tez). To'liq kadrlab
-  skanerlash ancha og'ir — kelajakda qo'shsa bo'ladi.
 - Ochiqroq (bikini/plaj) rasmlar odatda o'tadi; juda ochiq bo'lsa `nsfw.py` dagi
   `_THRESHOLD` bilan sozlanadi.
+- Chuqur video skaner userbot ulanган bo'lishini talab qiladi (2-bosqich).
+
+## Ovoz — gaplashadigan JARVIS 🎤
+
+Shaxsiy chatda **ovozli xabar** yuborsang:
+1. JARVIS tushunadi (Groq Whisper — tekin, alohida budjet)
+2. Nima eshitganini ko'rsatadi: 🎤 «...»
+3. Javobni **matn + OVOZ** bilan qaytaradi (edge-tts, o'zbek ovozi — Sardor)
+
+Kod bloklari va linklar ovozda o'qilmaydi ("kod yozdim, chatda ko'ring" deydi).
+
+**Sozlash (.env, ixtiyoriy):**
+```
+VOICE_REPLY=1                    # 0 = faqat matn, ovozsiz javob
+VOICE_NAME=uz-UZ-SardorNeural    # yoki uz-UZ-MadinaNeural (ayol ovozi)
+VOICE_LANG=uz                    # '' = til avto-aniqlash (ruscha/inglizcha uchun)
+```
+
+> Halol eslatma: Whisper'ning o'zbekchasi mukammal emas — ba'zi so'zlarni xato
+> yozishi mumkin. Aniq va sekin gapirsang yaxshi tushunadi, JARVIS miyasi esa
+> kichik xatolarni kontekstdan tushunib ketadi.
 
 ## Keyingi bosqichlar (g'oyalar)
 
-- **Ovoz** — Whisper (nutq→matn) + TTS (matn→ovoz)
+- **Avto-namoz** — har kuni o'zi kunlik eslatmalarni qo'yadi
+- **Tonggi brifing** — ob-havo + eslatmalar + namoz vaqtlari har ertalab
 - **Boshqa tool'lar:** valyuta kursi, yangiliklar, tarjima va h.k.
+- **24/7 server** — komp o'chiq bo'lsa ham ishlashi uchun VPS
 
 ---
 

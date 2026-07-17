@@ -1,8 +1,15 @@
+import os
 import asyncio
 import logging
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ChatPermissions,
+)
 from telegram.constants import ChatAction, ParseMode
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -17,14 +24,23 @@ import memory
 import agent
 import moderation
 import nsfw
+import security
 import tools as jtools
 import userbot
+import voice
+
+# Kutilayotgan CAPTCHA'lar: (chat_id, user_id) -> {msg_id, job}
+PENDING_CAPTCHAS = {}
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 log = logging.getLogger("jarvis")
+
+# Keraksiz shovqinni o'chiramiz — faqat JARVIS log'lari va haqiqiy muammolar qolsin.
+for _noisy in ("httpx", "httpcore", "apscheduler", "telethon", "telegram.ext.Application"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
 def _authorized(update: Update) -> bool:
@@ -79,7 +95,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i in range(0, len(reply), 4000):
         await update.message.reply_text(reply[i : i + 4000])
 
-    # Tayyorlangan (hali yuborilmagan) Telegram xabarlar uchun tasdiq tugmalari.
+    await _show_pending_sends(update, chat_id)
+
+
+async def _show_pending_sends(update: Update, chat_id):
+    """Tayyorlangan (hali yuborilmagan) Telegram xabarlar uchun tasdiq tugmalari."""
     for sid, p in list(jtools.PENDING_SENDS.items()):
         if p["chat_id"] != chat_id or p["shown"]:
             continue
@@ -90,20 +110,134 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("❌ Bekor", callback_data=f"tgn:{sid}"),
             ]]
         )
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             f"📨 Qabul qiluvchi: {p['to_name']}\n\n\"{p['text']}\"\n\nYuborilsinmi?",
             reply_markup=kb,
         )
 
 
+async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ovozli xabar: Whisper bilan tushunadi, JARVIS javobini matn + OVOZ bilan beradi."""
+    if not _authorized(update):
+        return
+    msg = update.effective_message
+    media = msg.voice or msg.audio
+    if not media:
+        return
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+    import tempfile as _tf
+    ogg = os.path.join(_tf.gettempdir(), f"jv_in_{chat_id}_{msg.message_id}.ogg")
+    mp3 = os.path.join(_tf.gettempdir(), f"jv_out_{chat_id}_{msg.message_id}.mp3")
+    try:
+        f = await context.bot.get_file(media.file_id)
+        await f.download_to_drive(ogg)
+        try:
+            text = await asyncio.to_thread(voice.transcribe, ogg)
+        except Exception as e:
+            log.exception("STT xatosi")
+            s = str(e).lower()
+            if "429" in s or "rate_limit" in s:
+                await msg.reply_text("⏳ Ovoz tanish chegarasi urildi — 1 daqiqa kutib qayta yuboring.")
+            else:
+                await msg.reply_text(f"Ovozni tushunolmadim: {e}")
+            return
+        if not text:
+            await msg.reply_text("🎤 Ovozdan matn chiqmadi — qayta urinib ko'ring.")
+            return
+
+        await msg.reply_text(f"🎤 «{text}»")
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+        try:
+            reply = await asyncio.to_thread(agent.respond, chat_id, text)
+        except Exception as e:
+            log.exception("Javob berishda xato (ovoz)")
+            s = str(e).lower()
+            if "429" in s or "rate_limit" in s or "too many requests" in s:
+                reply = "⏳ Groq tekin chegarasi urildi. ~1 daqiqa kutib qayta urinib ko'ring."
+            else:
+                reply = f"Xato yuz berdi: {e}"
+
+        for i in range(0, len(reply), 4000):
+            await msg.reply_text(reply[i : i + 4000])
+        await _show_pending_sends(update, chat_id)
+
+        # Javobni ovoz bilan ham yuboramiz (kod/link olib tashlangan qismini).
+        if config.VOICE_REPLY:
+            speak = voice.speakable(reply)
+            if speak:
+                try:
+                    await context.bot.send_chat_action(
+                        chat_id=chat_id, action=ChatAction.RECORD_VOICE
+                    )
+                    await voice.tts(speak, mp3)
+                    with open(mp3, "rb") as vf:
+                        await msg.reply_voice(vf)
+                except Exception:
+                    log.warning("TTS ishlamadi — matn bilan cheklandik")
+    finally:
+        for p in (ogg, mp3):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+
+_UNMUTE = ChatPermissions(
+    can_send_messages=True,
+    can_send_audios=True,
+    can_send_documents=True,
+    can_send_photos=True,
+    can_send_videos=True,
+    can_send_video_notes=True,
+    can_send_voice_notes=True,
+    can_send_polls=True,
+    can_send_other_messages=True,
+    can_add_web_page_previews=True,
+)
+
+
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tasdiq tugmalari: model aralashmaydi — to'g'ridan-to'g'ri kod yuboradi."""
+    """Inline tugmalar: CAPTCHA tasdig'i (yangi a'zo) va Telegram yuborish (egasi)."""
     q = update.callback_query
+    data = q.data or ""
+
+    # --- Kirish CAPTCHA: tugmani yangi a'zoning O'ZI bosishi kerak ---
+    if data.startswith("cap:"):
+        try:
+            _, chat_s, uid_s = data.split(":", 2)
+            chat_id, uid = int(chat_s), int(uid_s)
+        except ValueError:
+            await q.answer()
+            return
+        if q.from_user.id != uid:
+            await q.answer("Bu tugma sizga emas.", show_alert=True)
+            return
+        await q.answer("Tasdiqlandi ✅")
+        pend = PENDING_CAPTCHAS.pop((chat_id, uid), None)
+        if pend and pend.get("job"):
+            try:
+                pend["job"].schedule_removal()
+            except Exception:
+                pass
+        try:
+            await context.bot.restrict_chat_member(chat_id, uid, permissions=_UNMUTE)
+        except Exception:
+            log.warning("CAPTCHA: ovozini qaytara olmadim")
+        try:
+            await q.edit_message_text(f"✅ {q.from_user.first_name} tasdiqlandi. Xush kelibsiz!")
+        except Exception:
+            pass
+        return
+
+    # --- Telegram xabar yuborish tasdig'i: faqat egasi ---
     await q.answer()
     if not _authorized(update):
         return
 
-    action, _, sid_s = q.data.partition(":")
+    action, _, sid_s = data.partition(":")
     try:
         sid = int(sid_s)
     except ValueError:
@@ -205,8 +339,19 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.info("  -> egasi (OWNER), o'tkazib yuborildi. Sinash uchun MOD_TEST_MODE=1")
         return
 
-    bad, reason = await asyncio.to_thread(moderation.check_message, msg.text)
-    if not bad:
+    reason = ""
+    # 1) Xavfli link (tez, lokal)
+    if config.MOD_LINKS:
+        bad_l, r_l = security.find_dangerous_links(msg.text)
+        if bad_l:
+            reason = r_l
+    # 2) So'kinish/haqorat
+    if not reason:
+        bad, r = await asyncio.to_thread(moderation.check_message, msg.text)
+        if bad:
+            reason = r
+
+    if not reason:
         return
     if await _admin_exempt(context, msg.chat_id, user):
         return
@@ -228,7 +373,7 @@ async def on_group_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bad_c, r_c = await asyncio.to_thread(moderation.check_message, msg.caption)
         if bad_c:
             reason = r_c
-    # 2) Rasm/video NSFW tekshiruvi (lokal NudeNet).
+    # 2) Muqova/rasm NSFW tekshiruvi (lokal NudeNet) — barcha media uchun tez.
     if not reason:
         fid, suffix = _media_file_id(msg)
         if fid:
@@ -241,6 +386,9 @@ async def on_group_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     log.info("NSFW aniqlandi [%s]: %s", msg.chat_id, user.first_name)
             except Exception:
                 log.warning("Media yuklab/tekshirib bo'lmadi — o'tkazib yuborildi")
+    # 3) Video chuqur tekshiruvi: muqova toza bo'lsa ham kadrlarni namunalaymiz.
+    if not reason and (msg.video or (msg.document and (msg.document.mime_type or "").startswith("video/"))):
+        reason = await _deep_video_scan(msg)
 
     if not reason:
         return
@@ -249,27 +397,170 @@ async def on_group_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _moderate(context, msg, user, reason)
 
 
+async def _deep_video_scan(msg):
+    """Video: userbot bilan yuklab, kadrlar namunasini tekshiradi.
+    Tekshirib bo'lmasa (katta/yuklanmadi) MOD_BLOCK_BIG_VIDEO bo'yicha choralanadi."""
+    vid = msg.video or msg.document
+    size = getattr(vid, "file_size", 0) or 0
+    limit = config.MOD_VIDEO_MAX_MB * 1024 * 1024
+
+    def _unverified(why):
+        """Tekshirib bo'lmagan video: qattiq siyosatда o'chiradi, aks holda o'tkazadi."""
+        if config.MOD_BLOCK_BIG_VIDEO:
+            log.info("Video tekshirib bo'lmadi (%s) — QATTIQ siyosat: o'chiriladi", why)
+            return "tekshirib bo'lmaydigan video (18+ ehtimoli)"
+        log.info("Video tekshirib bo'lmadi (%s) — muqova bilan cheklandik", why)
+        return ""
+
+    if size == 0 or size > limit:
+        return _unverified(f"{size // 1024 // 1024 if size else '?'} MB, chegara {config.MOD_VIDEO_MAX_MB}")
+
+    if not userbot._ensure_started():
+        return _unverified("userbot ulanmagan")
+
+    mb = size // 1024 // 1024
+    log.info("Video chuqur skaner boshlandi (%s MB) — yuklanmoqda...", mb)
+    import tempfile as _tf
+    dest = os.path.join(_tf.gettempdir(), f"vid_{msg.chat_id}_{msg.message_id}.mp4")
+    path = await asyncio.to_thread(
+        userbot.download_media, msg.chat_id, msg.message_id, dest
+    )
+    if not path:
+        return _unverified("yuklab bo'lmadi")
+    try:
+        bad, r = await asyncio.to_thread(nsfw.is_nsfw_video, path)
+        if bad:
+            log.info("NSFW video ANIQLANDI [%s]", msg.chat_id)
+            return r
+        log.info("Video tekshirildi — toza (kadr namunasi)")
+        return ""
+    finally:
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
+
+async def _profile_is_nsfw(context, user_id):
+    """Foydalanuvchi profil rasmi 18+ mi?"""
+    try:
+        photos = await context.bot.get_user_profile_photos(user_id, limit=1)
+        if not photos.total_count:
+            return False
+        ph = photos.photos[0][-1]
+        f = await context.bot.get_file(ph.file_id)
+        data = bytes(await f.download_as_bytearray())
+    except Exception:
+        return False
+    bad, _ = await asyncio.to_thread(nsfw.is_nsfw_bytes, data, ".jpg")
+    return bad
+
+
+async def _kick(context, chat_id, user_id):
+    """Guruhdan chiqaradi (ban qilib, darrov unban — qayta kira olsin)."""
+    try:
+        await context.bot.ban_chat_member(chat_id, user_id)
+        await context.bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
+    except Exception:
+        log.exception("Kick ishlamadi (huquq yetarlimi?)")
+
+
+async def _captcha_kick_job(context: ContextTypes.DEFAULT_TYPE):
+    """Muddat tugadi — tasdiqlamagan a'zoni chiqaradi."""
+    chat_id, user_id, name = context.job.data
+    pend = PENDING_CAPTCHAS.pop((chat_id, user_id), None)
+    if not pend:
+        return  # allaqachon tasdiqlagan
+    await _kick(context, chat_id, user_id)
+    try:
+        await context.bot.delete_message(chat_id, pend["msg_id"])
+    except Exception:
+        pass
+    try:
+        await context.bot.send_message(
+            chat_id,
+            f"⏳ {name} vaqtida tasdiqlamadi — chiqarildi (bot himoyasi).",
+        )
+    except Exception:
+        pass
+
+
+async def _start_captcha(context, chat_id, member):
+    """Yangi a'zoni ovozini o'chirib, tasdiq tugmasini chiqaradi."""
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id, member.id,
+            permissions=ChatPermissions(can_send_messages=False),
+        )
+    except Exception:
+        log.warning("CAPTCHA: ovozini o'chira olmadim — bot 'restrict' huquqi yo'q?")
+        return
+
+    kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("✅ Men odamman", callback_data=f"cap:{chat_id}:{member.id}")]]
+    )
+    try:
+        sent = await context.bot.send_message(
+            chat_id,
+            f"👋 {member.mention_html()}, guruhga xush kelibsiz!\n"
+            f"Yozish uchun {config.MOD_CAPTCHA_SEC} soniya ichida pastdagi tugmani bosing.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb,
+        )
+    except Exception:
+        return
+
+    if not context.job_queue:
+        return
+    job = context.job_queue.run_once(
+        _captcha_kick_job,
+        when=config.MOD_CAPTCHA_SEC,
+        data=(chat_id, member.id, member.first_name),
+        name=f"cap_{chat_id}_{member.id}",
+    )
+    PENDING_CAPTCHAS[(chat_id, member.id)] = {"msg_id": sent.message_id, "job": job}
+
+
 async def on_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Yangi a'zo qo'shilganda profil rasmini 18+ ga tekshiradi."""
+    """Yangi a'zo: CAS spamer bazasi + 18+ profil rasm + kirish CAPTCHA."""
     msg = update.effective_message
     if not msg or not msg.new_chat_members:
         return
     for member in msg.new_chat_members:
         if member.is_bot or member.id == config.OWNER_ID:
             continue
-        try:
-            photos = await context.bot.get_user_profile_photos(member.id, limit=1)
-            if not photos.total_count:
-                continue
-            ph = photos.photos[0][-1]  # birinchi rasmning eng katta o'lchami
-            f = await context.bot.get_file(ph.file_id)
-            data = bytes(await f.download_as_bytearray())
-        except Exception:
+
+        # 1) CAS — ma'lum spamer bazasi
+        if config.MOD_CAS and await asyncio.to_thread(security.is_cas_banned, member.id):
+            log.info("Yangi a'zo CAS spamer [%s]: %s", msg.chat_id, member.first_name)
+            await _kick(context, msg.chat_id, member.id)
+            try:
+                await context.bot.send_message(
+                    msg.chat_id,
+                    f"🚫 {member.mention_html()} chiqarildi (ma'lum spamer — CAS bazasi).",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                pass
             continue
-        bad, _ = await asyncio.to_thread(nsfw.is_nsfw_bytes, data, ".jpg")
-        if bad:
+
+        # 2) Profil rasmi 18+
+        if await _profile_is_nsfw(context, member.id):
             log.info("Yangi a'zo 18+ profil rasm [%s]: %s", msg.chat_id, member.first_name)
-            await _warn_or_ban(context, msg.chat_id, member, "18+ profil rasmi")
+            await _kick(context, msg.chat_id, member.id)
+            try:
+                await context.bot.send_message(
+                    msg.chat_id,
+                    f"🚫 {member.mention_html()} chiqarildi (18+ profil rasmi).",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                pass
+            continue
+
+        # 3) Kirish CAPTCHA (odam ekanini isbotlash)
+        if config.MOD_CAPTCHA:
+            await _start_captcha(context, msg.chat_id, member)
 
 
 async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
@@ -284,11 +575,22 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
             log.warning("Eslatma yuborilmadi (chat_id=%s) — o'tkazib yuborildi", chat_id)
 
 
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Tarmoq xatolarini bir qatorlik qiladi (traceback bilan terminalni to'ldirmaydi).
+    Bunday xatolar vaqtinchalik — bot o'zi qayta ulanadi."""
+    err = context.error
+    if isinstance(err, (NetworkError, TimedOut)):
+        log.warning("Tarmoq uzildi (qayta ulanmoqda): %s", err.__class__.__name__)
+    else:
+        log.error("Kutilmagan xatolik: %s", err)
+
+
 def main():
     config.check()
     memory.init_db()
 
     app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+    app.add_error_handler(on_error)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CallbackQueryHandler(on_button))
@@ -296,6 +598,12 @@ def main():
     app.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, on_message
+        )
+    )
+    # Ovozli xabarlar (shaxsiy chat) -> Whisper + JARVIS + ovozli javob.
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO), on_voice
         )
     )
     app.add_handler(

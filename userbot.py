@@ -145,3 +145,32 @@ def send_message(chat_id, text):
         return f"Yuborildi -> {name}: \"{text}\""
 
     return _run(go())
+
+
+def download_media(chat_id, message_id, dest):
+    """Guruhdagi xabar mediasini faylga yuklaydi (botdan farqli — 2GBgача).
+    Muvaffaqiyatda fayl yo'lini, aks holda None qaytaradi."""
+    if not _ensure_started():
+        return None
+
+    async def go():
+        try:
+            msg = await _client.get_messages(int(chat_id), ids=int(message_id))
+        except Exception:
+            msg = None
+        if not msg or not getattr(msg, "media", None):
+            return None
+        # Tez yo'l: katta bo'laklar (512KB) -> kamroq so'rov -> tezroq yuklash.
+        try:
+            with open(dest, "wb") as f:
+                async for chunk in _client.iter_download(msg, request_size=512 * 1024):
+                    f.write(chunk)
+            return dest
+        except Exception:
+            # Zaxira: oddiy usul (tez yo'l ishlamasa).
+            return await _client.download_media(msg, file=dest)
+
+    try:
+        return _run(go(), timeout=300)
+    except Exception:
+        return None

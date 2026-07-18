@@ -203,12 +203,35 @@ VOICE_LANG=uz                    # '' = til avto-aniqlash (ruscha/inglizcha uchu
 > yozishi mumkin. Aniq va sekin gapirsang yaxshi tushunadi, JARVIS miyasi esa
 > kichik xatolarni kontekstdan tushunib ketadi.
 
+## Kundalik avto-funksiyalar ⚡
+
+JARVIS'ga yozib yoqasan (bir marta):
+- **Avto-namoz:** «har kunga namoz eslatmasini yoq» → har kuni ertalab o'zi qo'yadi
+- **Tonggi brifing:** «tonggi brifingni yoq» → har kuni soat `BRIEF_HOUR` (standart 7:00) da
+  ob-havo + namoz vaqtlari + valyuta + bugungi eslatmalarni bitta xabar qilib yuboradi
+- **Valyuta:** «dollar kursi qancha?» → Markaziy bank rasmiy kursi (tekin)
+
+Sozlash: `.env` da `BRIEF_HOUR=7`, `TZ_OFFSET=5` (Toshkent).
+
+## Link / hujjat o'quvchi 🔗
+
+- **Link:** «bu maqolani o'qib ber https://...» → sahifani ochib, asosiy matnini
+  o'qiydi va xulosa qiladi (trafilatura).
+- **Hujjat:** shaxsiy chatga **PDF / DOCX / TXT** tashlasang → matnini ajratib,
+  qisqacha mazmunini aytadi (pypdf + python-docx).
+
+> Skanerlanган (rasm) PDF'lardan matn chiqmaydi — faqat matnli hujjatlar.
+
+## Todo + takroriy eslatma ✅
+
+- **Vazifalar (todo):** «ro'yxatga qo'sh: kitob o'qish» → «vazifalarim?» → «1-chisini bajardim»
+- **Takroriy eslatma:** «har kuni 9:00 da tabletka ichishni eslat», «har dushanba 18:00 yig'ilish»
+  → o'z vaqtida takrorlanib keladi. Ko'rish: «takroriy eslatmalarim?», o'chirish raqami bo'yicha.
+
 ## Keyingi bosqichlar (g'oyalar)
 
-- **Avto-namoz** — har kuni o'zi kunlik eslatmalarni qo'yadi
-- **Tonggi brifing** — ob-havo + eslatmalar + namoz vaqtlari har ertalab
-- **Boshqa tool'lar:** valyuta kursi, yangiliklar, tarjima va h.k.
-- **24/7 server** — komp o'chiq bo'lsa ham ishlashi uchun VPS
+- **Boshqa tool'lar:** yangiliklar, tarjima, kalkulyator va h.k.
+- **24/7 server** — Railway (DEPLOY_RAILWAY.md)
 
 ---
 

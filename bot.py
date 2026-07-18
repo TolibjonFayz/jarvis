@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+from datetime import time as dtime, timezone, timedelta
 
 from telegram import (
     Update,
@@ -114,6 +115,58 @@ async def _show_pending_sends(update: Update, chat_id):
             f"📨 Qabul qiluvchi: {p['to_name']}\n\n\"{p['text']}\"\n\nYuborilsinmi?",
             reply_markup=kb,
         )
+
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Shaxsiy chatga tashlangan hujjatni (PDF/DOCX/txt) o'qib xulosa qiladi."""
+    if not _authorized(update):
+        return
+    msg = update.effective_message
+    doc = msg.document
+    if not doc:
+        return
+    chat_id = update.effective_chat.id
+    if (doc.file_size or 0) > 20 * 1024 * 1024:
+        await msg.reply_text("Hujjat juda katta (20MB dan oshmasin).")
+        return
+
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    import tempfile as _tf
+    ext = os.path.splitext(doc.file_name or "")[1] or ".bin"
+    tmp = os.path.join(_tf.gettempdir(), f"doc_{chat_id}_{msg.message_id}{ext}")
+    try:
+        f = await context.bot.get_file(doc.file_id)
+        await f.download_to_drive(tmp)
+        text = await asyncio.to_thread(
+            jtools.extract_document_text, tmp, doc.file_name or "", doc.mime_type or ""
+        )
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+
+    if not text or text.startswith("__XATO__") or not text.strip():
+        await msg.reply_text(
+            "📄 Hujjatdan matn chiqmadi (rasm-skan yoki qo'llab-quvvatlanmaydigan format)."
+        )
+        return
+
+    await msg.reply_text(f"📄 «{doc.file_name}» o'qildi ({len(text)} belgi). Xulosa qilyapman...")
+    prompt = (
+        f"Quyidagi hujjatni ({doc.file_name}) o'qidim. Qisqacha mazmuni va asosiy "
+        f"nuqtalarini o'zbekcha, aniq ayt:\n\n{text[:5000]}"
+    )
+    try:
+        reply = await asyncio.to_thread(agent.respond, chat_id, prompt)
+    except Exception as e:
+        s = str(e).lower()
+        if "429" in s or "rate_limit" in s or "too many requests" in s:
+            reply = "⏳ Groq chegarasi urildi. ~1 daqiqa kutib qayta yuboring."
+        else:
+            reply = f"Xato yuz berdi: {e}"
+    for i in range(0, len(reply), 4000):
+        await msg.reply_text(reply[i : i + 4000])
 
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -563,8 +616,41 @@ async def on_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _start_captcha(context, msg.chat_id, member)
 
 
+TASHKENT = timezone(timedelta(hours=config.TZ_OFFSET))
+
+
+async def daily_prayers_job(context: ContextTypes.DEFAULT_TYPE):
+    """Har kuni ertalab: avto-namoz yoqilgan chatlarga o'sha kun eslatmalarini qo'yadi."""
+    for chat_id in memory.settings_where("auto_prayer", "1"):
+        city = memory.get_setting(chat_id, "prayer_city", "Tashkent")
+        try:
+            await asyncio.to_thread(jtools.set_prayer_reminders_for, chat_id, city, 0)
+            log.info("Avto-namoz qo'yildi [%s] %s", chat_id, city)
+        except Exception:
+            log.warning("Avto-namoz xatosi [%s]", chat_id)
+
+
+async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
+    """Har kuni ertalab: tonggi brifing yoqilgan chatlarga xabar yuboradi."""
+    for chat_id in memory.settings_where("morning_brief", "1"):
+        city = memory.get_setting(chat_id, "brief_city", "Tashkent")
+        try:
+            text = await asyncio.to_thread(jtools.compose_brief, chat_id, city)
+            await context.bot.send_message(chat_id, text)
+            log.info("Tonggi brifing yuborildi [%s]", chat_id)
+        except Exception:
+            log.warning("Tonggi brifing xatosi [%s]", chat_id)
+
+
 async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
-    """Har 30 soniyada vaqti kelgan eslatmalarni yuboradi."""
+    """Har 30 soniyada vaqti kelgan (bir martalik + takroriy) eslatmalarni yuboradi."""
+    # Takroriy eslatmalar (har kuni/hafta)
+    for chat_id, text in memory.due_recurring():
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=f"🔔 Eslatma: {text}")
+        except Exception:
+            log.warning("Takroriy eslatma yuborilmadi (chat_id=%s)", chat_id)
+
     for rid, chat_id, text in memory.due_reminders():
         # Avval "yuborildi" deb belgilaymiz — yuborish xato bo'lsa ham
         # cheksiz qayta urinmaslik uchun (best-effort).
@@ -606,6 +692,12 @@ def main():
             filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO), on_voice
         )
     )
+    # Hujjatlar (shaxsiy chat) -> o'qib xulosa qilish.
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & filters.Document.ALL, on_document
+        )
+    )
     app.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
@@ -638,6 +730,11 @@ def main():
     # Eslatmalarni tekshiruvchi fon vazifasi.
     if app.job_queue:
         app.job_queue.run_repeating(check_reminders, interval=30, first=10)
+        # Kundalik: avto-namoz (00:10) va tonggi brifing (BRIEF_HOUR:00), Toshkent vaqti.
+        app.job_queue.run_daily(daily_prayers_job, time=dtime(0, 10, tzinfo=TASHKENT))
+        app.job_queue.run_daily(
+            morning_brief_job, time=dtime(config.BRIEF_HOUR, 0, tzinfo=TASHKENT)
+        )
     else:
         log.warning("job_queue yo'q — eslatmalar ishlamaydi. "
                     "O'rnating: pip install \"python-telegram-bot[job-queue]\"")

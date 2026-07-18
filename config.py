@@ -12,6 +12,9 @@ MODEL = os.getenv("MODEL", "openai/gpt-oss-120b")
 # Userbot (shaxsiy akkaunt) — my.telegram.org dan. Ixtiyoriy.
 TG_API_ID = int(os.getenv("TG_API_ID", "0"))
 TG_API_HASH = os.getenv("TG_API_HASH", "")
+# Server (Railway) uchun: sessiyani fayl o'rniga STRING sifatida env'da saqlaymiz.
+# gen_session.py bilan yaratasiz. Bo'sh bo'lsa — lokal fayl sessiyasi ishlatiladi.
+TG_SESSION = os.getenv("TG_SESSION", "")
 
 # Guruh moderatsiyasi: nechta ogohlantirishdan KEYIN chiqarib yuborilsin.
 # 2 = ikki marta ogohlantiriladi, 3-buzilishda guruhdan chiqariladi.
@@ -47,6 +50,10 @@ VOICE_NAME = os.getenv("VOICE_NAME", "uz-UZ-SardorNeural")  # yoki uz-UZ-MadinaN
 VOICE_LANG = os.getenv("VOICE_LANG", "uz")  # Whisper tili ('' = avto-aniqlash)
 STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3")
 
+# --- Kundalik avto-funksiyalar ---
+BRIEF_HOUR = int(os.getenv("BRIEF_HOUR", "7"))  # tonggi brifing soati (Toshkent vaqti)
+TZ_OFFSET = int(os.getenv("TZ_OFFSET", "5"))  # Toshkent = UTC+5
+
 # Javob uchun maksimal token.
 # Groq tekin darajasi daqiqasiga ~8000 token beradi va bu "ajratilgan" javob
 # ham shu chegaraga kiradi. Shuning uchun past qo'ydik (429'ni kamaytiradi).
@@ -61,7 +68,8 @@ WORKSPACE = os.path.join(BASE_DIR, "workspace")
 READ_ROOT = os.getenv("READ_ROOT", r"D:\Tolibjon")
 
 # Xotira ma'lumotlar bazasi shu yerda saqlanadi.
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# Serverda (Railway) doimiy diskка ko'rsatish uchun DATA_DIR ni env'da beriladi.
+DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 DB_PATH = os.path.join(DATA_DIR, "jarvis.db")
 
 os.makedirs(WORKSPACE, exist_ok=True)

@@ -1,0 +1,3 @@
+# Railway (Nixpacks) uchun: video dekodlash uchun ffmpeg qo'shamiz.
+[phases.setup]
+aptPkgs = ["ffmpeg"]

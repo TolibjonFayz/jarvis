@@ -1,6 +1,7 @@
 """Agent qo'llari (tool'lar): fayl, buyruq, xotira, qidiruv, ob-havo, eslatma.
 Ta'riflar token tejash uchun ataylab qisqa — nom o'zi tushunarli."""
 import os
+import re
 import json
 import time
 import datetime
@@ -8,7 +9,7 @@ import subprocess
 import urllib.request
 import urllib.parse
 
-from config import WORKSPACE, READ_ROOT
+from config import WORKSPACE, READ_ROOT, BRIEF_HOUR
 import memory
 
 # Qisqa tool ta'riflari (token tejash uchun).
@@ -77,6 +78,15 @@ TOOLS = [
         },
     },
     {
+        "name": "read_url",
+        "description": "Havolani (URL) ochib, sahifaning asosiy matnini o'qiydi. Maqola/sahifani o'qish yoki xulosa qilish uchun.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"url": {"type": "string"}},
+            "required": ["url"],
+        },
+    },
+    {
         "name": "get_weather",
         "description": "Ob-havo + 3 kunlik prognoz (shahar nomi)",
         "input_schema": {
@@ -109,6 +119,96 @@ TOOLS = [
                 "days_ahead": {"type": "number"},
             },
             "required": ["city"],
+        },
+    },
+    {
+        "name": "set_daily_prayers",
+        "description": "Har kunga namoz eslatmalarini AVTOMATIK qo'yishni yoqadi/o'chiradi. on=true yoqadi",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string"},
+                "on": {"type": "boolean"},
+            },
+            "required": ["on"],
+        },
+    },
+    {
+        "name": "get_currency",
+        "description": "Valyuta kursini beradi (Markaziy bank, so'mda). Masalan: USD, EUR, RUB",
+        "input_schema": {
+            "type": "object",
+            "properties": {"code": {"type": "string"}},
+            "required": [],
+        },
+    },
+    {
+        "name": "set_morning_brief",
+        "description": "Har ertalab tonggi brifing (ob-havo+namoz+kurs+eslatmalar) yuborishni yoqadi/o'chiradi. on=true yoqadi",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string"},
+                "on": {"type": "boolean"},
+            },
+            "required": ["on"],
+        },
+    },
+    {
+        "name": "set_recurring_reminder",
+        "description": (
+            "TAKRORIY eslatma qo'yadi (har kuni yoki haftaning kunida). "
+            "hour 0-23, minute 0-59. weekday: 0=Dushanba...6=Yakshanba; har kuni bo'lsa berilmaydi."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "hour": {"type": "number"},
+                "minute": {"type": "number"},
+                "weekday": {"type": "number"},
+            },
+            "required": ["text", "hour"],
+        },
+    },
+    {
+        "name": "list_recurring",
+        "description": "Takroriy eslatmalar ro'yxatini beradi (raqamli).",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "cancel_recurring",
+        "description": "Takroriy eslatmani raqami bo'yicha o'chiradi (list_recurring dagi raqam).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"number": {"type": "number"}},
+            "required": ["number"],
+        },
+    },
+    {
+        "name": "add_todo",
+        "description": "Vazifalar ro'yxatiga (todo) yangi vazifa qo'shadi.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "list_todos",
+        "description": "Vazifalar ro'yxatini (todo) beradi.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "complete_todo",
+        "description": "Vazifani bajarilgan deb belgilaydi. number=ro'yxatdagi raqam yoki text=vazifa matni",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "number": {"type": "number"},
+                "text": {"type": "string"},
+            },
+            "required": [],
         },
     },
     {
@@ -145,6 +245,9 @@ TOOLS = [
 import itertools
 _send_seq = itertools.count(1)
 PENDING_SENDS = {}
+
+# Hafta kunlari (0=Dushanba ... 6=Yakshanba — Python weekday tartibi)
+_DAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
 
 # Namoz nomlari: Aladhan (inglizcha) -> o'zbekcha
 PRAYERS = [
@@ -215,6 +318,43 @@ def _get_weather(city):
     return "\n".join(lines)
 
 
+def _read_url(url, limit=6000):
+    """Havoladan asosiy matnni ajratadi (trafilatura)."""
+    import trafilatura
+
+    if not re.match(r"^https?://", url):
+        url = "https://" + url
+    downloaded = trafilatura.fetch_url(url)
+    if not downloaded:
+        return "Sahifani ochib bo'lmadi (link noto'g'ri yoki bloklangan)."
+    text = trafilatura.extract(downloaded, include_comments=False, include_tables=True)
+    if not text or not text.strip():
+        return "Sahifadan matn ajratib bo'lmadi (rasm/video sahifa bo'lishi mumkin)."
+    return text.strip()[:limit]
+
+
+def extract_document_text(path, filename="", mime=""):
+    """Hujjatdan matn ajratadi: PDF (pypdf), DOCX (python-docx), matn fayllar."""
+    name = (filename or path).lower()
+    mime = mime or ""
+    try:
+        if name.endswith(".pdf") or "pdf" in mime:
+            from pypdf import PdfReader
+
+            reader = PdfReader(path)
+            return "\n".join((p.extract_text() or "") for p in reader.pages).strip()
+        if name.endswith(".docx") or "word" in mime or "officedocument" in mime:
+            import docx
+
+            d = docx.Document(path)
+            return "\n".join(p.text for p in d.paragraphs).strip()
+        # txt / md / kod / csv va h.k.
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read().strip()
+    except Exception as e:
+        return f"__XATO__: {e}"
+
+
 def _prayer_times(city, date, country="Uzbekistan"):
     ds = date.strftime("%d-%m-%Y")
     url = (
@@ -223,6 +363,79 @@ def _prayer_times(city, date, country="Uzbekistan"):
     )
     data = json.loads(urllib.request.urlopen(url, timeout=15).read().decode("utf-8"))
     return data["data"]["timings"]
+
+
+def set_prayer_reminders_for(chat_id, city, days_ahead=1):
+    """Berilgan kun uchun namoz eslatmalarini qo'yadi. (o'rnatilganlar ro'yxati)."""
+    date = datetime.date.today() + datetime.timedelta(days=days_ahead)
+    timings = _prayer_times(city, date)
+    now = time.time()
+    lines = []
+    for eng, uz in PRAYERS:
+        hhmm = timings[eng].split()[0]
+        h, m = map(int, hhmm.split(":"))
+        due = datetime.datetime.combine(date, datetime.time(h, m)).timestamp()
+        if due <= now:
+            continue
+        memory.add_reminder(chat_id, f"{uz} namozi vaqti kirdi 🕌", due)
+        lines.append(f"- {uz}: {hhmm}")
+    return date, lines
+
+
+def _get_currency(code=None):
+    url = "https://cbu.uz/uz/arkhiv-kursov-valyut/json/"
+    data = json.loads(urllib.request.urlopen(url, timeout=15).read().decode("utf-8"))
+    if code:
+        code = code.upper().strip()
+        for d in data:
+            if d["Ccy"] == code:
+                arrow = "↑" if (d["Diff"] or "0")[0] not in "-0" else ""
+                return f"{d['Nominal']} {code} = {d['Rate']} so'm ({d['CcyNm_UZ']}), o'zgarish {d['Diff']} {arrow}".strip()
+        return f"'{code}' valyuta topilmadi."
+    # standart: USD, EUR, RUB
+    out = [f"Markaziy bank kursi ({data[0]['Date']}):"]
+    for d in data:
+        if d["Ccy"] in ("USD", "EUR", "RUB"):
+            out.append(f"- {d['Nominal']} {d['Ccy']} = {d['Rate']} so'm (o'zg. {d['Diff']})")
+    return "\n".join(out)
+
+
+def compose_brief(chat_id, city="Tashkent"):
+    """Tonggi brifing: sana + ob-havo + namoz vaqtlari + bugungi eslatmalar + valyuta."""
+    today = datetime.date.today()
+    parts = [f"☀️ Xayrli tong! Bugun {today.strftime('%d.%m.%Y')}"]
+
+    try:
+        parts.append("🌤️ " + _get_weather(city))
+    except Exception:
+        pass
+
+    try:
+        timings = _prayer_times(city, today)
+        pr = "  ".join(f"{uz} {timings[eng].split()[0]}" for eng, uz in PRAYERS)
+        parts.append("🕌 Namoz: " + pr)
+    except Exception:
+        pass
+
+    try:
+        curr = _get_currency("USD")
+        parts.append("💵 " + curr)
+    except Exception:
+        pass
+
+    pend = memory.list_pending_reminders(chat_id)
+    today_rem = [
+        (t, ts) for t, ts in pend
+        if datetime.date.fromtimestamp(ts) == today and "namozi vaqti" not in t
+    ]
+    if today_rem:
+        lines = [
+            f"  • {datetime.datetime.fromtimestamp(ts).strftime('%H:%M')} — {t}"
+            for t, ts in today_rem
+        ]
+        parts.append("⏰ Bugungi eslatmalar:\n" + "\n".join(lines))
+
+    return "\n\n".join(parts)
 
 
 def execute_tool(name, tool_input, chat_id=None):
@@ -269,6 +482,9 @@ def execute_tool(name, tool_input, chat_id=None):
 
         if name == "web_search":
             return _web_search(tool_input["query"])
+
+        if name == "read_url":
+            return _read_url(tool_input["url"])
 
         if name == "get_weather":
             return _get_weather(tool_input["city"])
@@ -329,24 +545,85 @@ def execute_tool(name, tool_input, chat_id=None):
         if name == "set_prayer_reminders":
             city = tool_input.get("city", "Tashkent")
             days = int(tool_input.get("days_ahead", 1))
-            date = datetime.date.today() + datetime.timedelta(days=days)
-            timings = _prayer_times(city, date)
-            now = time.time()
-            set_lines = []
-            for eng, uz in PRAYERS:
-                hhmm = timings[eng].split()[0]  # "03:19 (+05)" -> "03:19"
-                h, m = map(int, hhmm.split(":"))
-                due = datetime.datetime.combine(date, datetime.time(h, m)).timestamp()
-                if due <= now:
-                    continue  # vaqti o'tib ketgan
-                memory.add_reminder(chat_id, f"{uz} namozi vaqti kirdi 🕌", due)
-                set_lines.append(f"- {uz}: {hhmm}")
-            if not set_lines:
+            date, lines = set_prayer_reminders_for(chat_id, city, days)
+            if not lines:
                 return "Bu kun uchun namoz vaqtlari o'tib ketgan."
             return (
                 f"{city} uchun {date.strftime('%d.%m.%Y')} namoz eslatmalari qo'yildi:\n"
-                + "\n".join(set_lines)
+                + "\n".join(lines)
             )
+
+        if name == "set_daily_prayers":
+            on = bool(tool_input.get("on"))
+            city = tool_input.get("city") or memory.get_setting(chat_id, "prayer_city", "Tashkent")
+            if not on:
+                memory.set_setting(chat_id, "auto_prayer", "0")
+                return "Kundalik avto-namoz eslatmasi o'chirildi."
+            memory.set_setting(chat_id, "auto_prayer", "1")
+            memory.set_setting(chat_id, "prayer_city", city)
+            # Bugungisini darrov qo'yamiz (ertaga avtomatik davom etadi).
+            _, lines = set_prayer_reminders_for(chat_id, city, 0)
+            extra = ("\nBugungisi ham qo'yildi:\n" + "\n".join(lines)) if lines else ""
+            return (
+                f"Kundalik avto-namoz YOQILDI ({city}). Har kuni ertalab o'zi qo'yadi." + extra
+            )
+
+        if name == "get_currency":
+            return _get_currency(tool_input.get("code"))
+
+        if name == "set_morning_brief":
+            on = bool(tool_input.get("on"))
+            city = tool_input.get("city") or memory.get_setting(chat_id, "brief_city", "Tashkent")
+            if not on:
+                memory.set_setting(chat_id, "morning_brief", "0")
+                return "Tonggi brifing o'chirildi."
+            memory.set_setting(chat_id, "morning_brief", "1")
+            memory.set_setting(chat_id, "brief_city", city)
+            return (
+                f"Tonggi brifing YOQILDI ({city}). Har kuni ertalab soat "
+                f"{BRIEF_HOUR}:00 da yuboriladi. Mana bugungisi:\n\n"
+                + compose_brief(chat_id, city)
+            )
+
+        if name == "set_recurring_reminder":
+            text = tool_input["text"]
+            hour = int(tool_input["hour"])
+            minute = int(tool_input.get("minute", 0) or 0)
+            dow = tool_input.get("weekday")
+            dow = int(dow) if dow is not None and dow != "" else None
+            memory.add_recurring(chat_id, text, hour, minute, dow)
+            when = f"{_DAYS[dow]} kunlari" if dow is not None else "har kuni"
+            return f"Takroriy eslatma qo'yildi: {when} soat {hour:02d}:{minute:02d} — '{text}'"
+
+        if name == "list_recurring":
+            rows = memory.list_recurring(chat_id)
+            if not rows:
+                return "Takroriy eslatma yo'q."
+            out = []
+            for i, (_id, text, h, m, dow) in enumerate(rows, 1):
+                when = _DAYS[dow] if dow is not None else "har kuni"
+                out.append(f"{i}. {when} {h:02d}:{m:02d} — {text}")
+            return "\n".join(out)
+
+        if name == "cancel_recurring":
+            t = memory.cancel_recurring(chat_id, int(tool_input["number"]))
+            return f"O'chirildi: {t}" if t else "Bunday raqamli takroriy eslatma yo'q."
+
+        if name == "add_todo":
+            memory.add_todo(chat_id, tool_input["text"])
+            return f"Ro'yxatga qo'shildi: {tool_input['text']}"
+
+        if name == "list_todos":
+            todos = memory.list_todos(chat_id)
+            if not todos:
+                return "Vazifalar ro'yxati bo'sh."
+            return "\n".join(f"{i}. {t}" for i, (_id, t) in enumerate(todos, 1))
+
+        if name == "complete_todo":
+            num = tool_input.get("number")
+            num = int(num) if num is not None and num != "" else None
+            done = memory.complete_todo(chat_id, num, tool_input.get("text"))
+            return f"Bajarildi ✅: {done}" if done else "Bunday vazifa topilmadi."
 
         return f"Noma'lum tool: {name}"
 

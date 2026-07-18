@@ -65,10 +65,15 @@ _tools = [
 # Kategoriya -> tool nomlari. Router qaysi kategoriya keragini aytadi,
 # Faza 2 faqat o'shalarni yuboradi (token tejash).
 TOOL_CATEGORIES = {
-    "web": ["web_search", "get_weather"],
+    "web": ["web_search", "get_weather", "get_currency", "read_url"],
     "tg": ["tg_chats", "tg_read", "tg_send"],
     "file": ["read_file", "write_file", "list_files", "run_command"],
-    "esl": ["set_reminder", "list_reminders", "set_prayer_reminders"],
+    "esl": [
+        "set_reminder", "list_reminders", "set_prayer_reminders",
+        "set_daily_prayers", "set_morning_brief",
+        "set_recurring_reminder", "list_recurring", "cancel_recurring",
+    ],
+    "todo": ["add_todo", "list_todos", "complete_todo"],
     "xot": ["remember", "recall"],
 }
 
@@ -103,8 +108,10 @@ def build_system(router=False):
     if router:
         base += (
             "\n\nMUHIM: tool kerak bo'lsa boshqa HECH NARSA yozma, faqat <TOOL:kat> yoz. "
-            "kat: web=internet qidiruv/ob-havo, tg=shaxsiy Telegram suhbat/xabar, "
-            "file=fayl/kod yozish/buyruq bajarish, esl=eslatma/namoz vaqtlari, "
+            "kat: web=internet qidiruv/ob-havo/valyuta kursi/havola(URL) o'qish, tg=shaxsiy Telegram suhbat/xabar, "
+            "file=fayl/kod yozish/buyruq bajarish, "
+            "esl=eslatma/namoz/avto-namoz/tonggi brifing/takroriy eslatma, "
+            "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
             "xot=eslab qolish yoki xotiradan izlash. "
             "Bir nechtasi kerak bo'lsa vergul bilan: <TOOL:web,esl>. "
             "Aks holda (suhbat, savol, maslahat) to'g'ridan-to'g'ri QISQA javob ber."

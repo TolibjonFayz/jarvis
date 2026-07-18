@@ -33,16 +33,23 @@ def _ensure_started():
             return True
         if not (config.TG_API_ID and config.TG_API_HASH):
             return False
-        if not os.path.exists(SESSION + ".session"):
-            return False
 
         from telethon import TelegramClient
+        from telethon.sessions import StringSession
+
+        # Server: env'dagi STRING sessiya; lokal: fayl sessiyasi.
+        if config.TG_SESSION:
+            session = StringSession(config.TG_SESSION)
+        elif os.path.exists(SESSION + ".session"):
+            session = SESSION
+        else:
+            return False
 
         _loop = asyncio.new_event_loop()
         threading.Thread(target=_loop.run_forever, daemon=True).start()
 
         async def _make():
-            c = TelegramClient(SESSION, config.TG_API_ID, config.TG_API_HASH)
+            c = TelegramClient(session, config.TG_API_ID, config.TG_API_HASH)
             await c.connect()
             if not await c.is_user_authorized():
                 await c.disconnect()

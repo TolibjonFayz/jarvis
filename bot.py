@@ -30,6 +30,7 @@ import nsfw
 import security
 import tools as jtools
 import userbot
+import vision
 import voice
 
 STARTED_AT = time.time()
@@ -213,6 +214,49 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = "⏳ Groq chegarasi urildi. ~1 daqiqa kutib qayta yuboring."
         else:
             reply = f"Xato yuz berdi: {e}"
+    await _send_md(context.bot, chat_id, reply)
+
+
+async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rasm: Gemini FAQAT rasm+izohni ko'radi, javobni Groq'dagi agent yozadi
+    (shaxsiy kontekst — xotira, tarix — Gemini'ga bormaydi)."""
+    if not _authorized(update):
+        return
+    msg = update.effective_message
+    chat_id = update.effective_chat.id
+    if not vision.available():
+        await msg.reply_text("🖼 Rasm ko'rish uchun .env ga GEMINI_API_KEY qo'yish kerak.")
+        return
+    if msg.photo:
+        media, mime = msg.photo[-1], "image/jpeg"  # eng katta o'lcham
+    else:
+        media, mime = msg.document, msg.document.mime_type or "image/jpeg"
+    if (media.file_size or 0) > 15 * 1024 * 1024:
+        await msg.reply_text("Rasm juda katta (15MB dan oshmasin).")
+        return
+
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    note = (msg.caption or "").strip()
+    f = await context.bot.get_file(media.file_id)
+    data = bytes(await f.download_as_bytearray())
+    try:
+        desc = await asyncio.to_thread(vision.describe, data, mime, note)
+    except vision.VisionError as e:
+        log.warning("Rasm ko'rilmadi: %s", e)
+        await msg.reply_text(
+            "🖼 Rasmni hozir ko'ra olmadim (Gemini limiti yoki band). Keyinroq qayta yubor."
+        )
+        return
+
+    prompt = (
+        f"[Egang rasm yubordi. Rasmdagi narsa (avtomatik tavsif):\n{desc[:3000]}]\n\n"
+        + (note or "Rasm haqida qisqacha ayt.")
+    )
+    try:
+        reply = await asyncio.to_thread(agent.respond, chat_id, prompt, note)
+    except Exception as e:
+        log.exception("Javob berishda xato (rasm)")
+        reply = f"Rasmdagi narsa:\n\n{desc}\n\n(izoh yozishda xato: {e})"
     await _send_md(context.bot, chat_id, reply)
 
 
@@ -737,6 +781,13 @@ def main():
     app.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO), on_voice
+        )
+    )
+    # Rasmlar (shaxsiy chat) -> Gemini tavsifi + agent javobi. Hujjatdan OLDIN:
+    # fayl sifatida yuborilgan rasm ham shu yerga tushsin.
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & (filters.PHOTO | filters.Document.IMAGE), on_photo
         )
     )
     # Hujjatlar (shaxsiy chat) -> o'qib xulosa qilish.

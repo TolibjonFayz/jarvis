@@ -50,6 +50,18 @@ VOICE_NAME = os.getenv("VOICE_NAME", "uz-UZ-MadinaNeural")  # FRIDAY; yoki uz-UZ
 VOICE_LANG = os.getenv("VOICE_LANG", "uz")  # Whisper tili ('' = avto-aniqlash)
 STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3")
 
+# Rasm ko'rish (Gemini tekin). FAQAT rasm + izoh yuboriladi — vision.py ga qarang.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# Zanjir: kuchlisi (~20 so'rov/kun) -> limiti kattaroq lite modellar.
+VISION_MODELS = [
+    m.strip()
+    for m in os.getenv(
+        "VISION_MODELS",
+        "gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite",
+    ).split(",")
+    if m.strip()
+]
+
 # --- Kundalik avto-funksiyalar ---
 BRIEF_HOUR = int(os.getenv("BRIEF_HOUR", "7"))  # tonggi brifing soati (Toshkent vaqti)
 TZ_OFFSET = int(os.getenv("TZ_OFFSET", "5"))  # Toshkent = UTC+5

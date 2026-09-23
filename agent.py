@@ -143,7 +143,7 @@ def build_system(chat_id, user_text, router=False):
         "Imkoniyatlaring FAQAT shular (boshqasini va'da qilma): suhbat/kod, fayl, xotira, "
         "internet qidiruv/havola o'qish, ob-havo, valyuta kursi, eslatma/namoz/tonggi brifing, "
         "todo, xarajat hisobi, shaxsiy Telegram o'qish/yuborish, ovozli xabar, hujjat xulosasi, "
-        "guruh moderatsiyasi. Rasm ko'ra olmaysan. "
+        "guruh moderatsiyasi, rasm ko'rish (rasm yuborilsa tavsifi [qavs] ichida keladi). "
         f"Foydalanuvchi (egang) haqida bilganlaring: {mem_text}. "
         "Sen suhbatdan faktlarni FONDA O'ZING eslab qolasan — 'eslab qol deb ayting' "
         "deb SO'RAMA. Bilmagan narsangni o'ylab topma. "
@@ -338,11 +338,16 @@ def _tool_loop(chat_id, history, user_text, cats):
     return final or last_result
 
 
-def respond(chat_id, user_text):
-    """Bitta xabarga javob. Avval arzon router, kerak bo'lsa kategoriyali tool aylanmasi."""
+def respond(chat_id, user_text, route_text=None):
+    """Bitta xabarga javob. Avval arzon router, kerak bo'lsa kategoriyali tool aylanmasi.
+
+    route_text: pul yo'nalishini shu matn bo'yicha aniqlash (rasmda — faqat
+    egasining izohi; aks holda chekdagi "so'm" so'zidan o'zi xarajat yozardi).
+    """
     history = _trim_history(memory.get_history(chat_id, limit=HISTORY_WINDOW))
 
-    if _MONEY_RE.search(_APOS_RE.sub("", user_text)):
+    route = user_text if route_text is None else route_text
+    if _MONEY_RE.search(_APOS_RE.sub("", route)):
         final = _money_flow(chat_id, user_text)
         if final is not None:
             memory.add_message(chat_id, "user", user_text)

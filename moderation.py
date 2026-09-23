@@ -2,9 +2,11 @@
 
 2 qatlam:
 1) Lokal so'zlar ro'yxati — bepul, bir zumda, aniq so'kinishlar uchun.
-2) AI tekshiruv — nozik/kontekstli haqoratlar uchun. ATAYLAB alohida arzon
-   modelda (llama-3.1-8b-instant): Groq'da har model uchun kunlik budjet
-   ALOHIDA, shuning uchun moderatsiya JARVIS suhbat budjetini yemaydi.
+2) AI tekshiruv — nozik/kontekstli haqoratlar uchun. Alohida modelda
+   (qwen3.8-27b): Groq'da har model uchun kunlik budjet ALOHIDA, shuning
+   uchun moderatsiya asosiy gpt-oss-120b budjetini yemaydi. (Bu model
+   agent.py zanjirida 3-zaxira ham — faqat ikkala gpt-oss tugaganda.)
+   llama-3.1-8b-instant Groq'dan olib tashlangan (2026-09).
 """
 import re
 
@@ -12,7 +14,7 @@ from groq import Groq
 
 from config import GROQ_API_KEY
 
-MOD_MODEL = "llama-3.1-8b-instant"
+MOD_MODEL = "qwen/qwen3.8-27b"
 
 client = Groq(api_key=GROQ_API_KEY, max_retries=0) if GROQ_API_KEY else None
 

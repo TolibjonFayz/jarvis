@@ -26,9 +26,8 @@ CANDIDATES = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     "moonshotai/kimi-k2-instruct",
-    "qwen/qwen3-32b",
+    "qwen/qwen3.8-27b",
     "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
 ]
 
 print("Tool chaqirish tekshirilmoqda...\n")

@@ -23,7 +23,7 @@ client = Groq(api_key=GROQ_API_KEY, max_retries=0) if GROQ_API_KEY else None
 MODEL_CHAIN = [
     MODEL,
     "openai/gpt-oss-20b",
-    "qwen/qwen3-32b",
+    "qwen/qwen3.8-27b",
 ]
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)

@@ -12,6 +12,7 @@ import datetime
 
 from groq import Groq, RateLimitError
 
+import brain
 import memory
 from config import GROQ_API_KEY, MODEL, MAX_TOKENS
 from tools import TOOLS, execute_tool
@@ -86,7 +87,7 @@ TOOL_CATEGORIES = {
     ],
     "todo": ["add_todo", "list_todos", "complete_todo"],
     "pul": ["add_expense", "expense_report", "list_expenses", "delete_expense"],
-    "xot": ["remember", "recall"],
+    "xot": ["remember", "recall", "forget"],
 }
 
 _TOOL_RE = re.compile(r"<\s*TOOL\s*:?\s*([a-z, ]*)>?", re.IGNORECASE)
@@ -109,6 +110,8 @@ _CLAIM_RE = re.compile(
     re.IGNORECASE,
 )
 
+_REMEMBER_RE = re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE)
+
 
 def _trim_history(msgs, each=500):
     """Eski xabarlarni qisqartiradi — to'liq matn tarixda shart emas."""
@@ -118,16 +121,21 @@ def _trim_history(msgs, each=500):
     ]
 
 
-def build_system(router=False):
+# Modelga beriladigan oxirgi xabarlar soni; undan eskisi brain xulosasida.
+HISTORY_WINDOW = 6
+
+
+def build_system(chat_id, user_text, router=False):
     """Qisqa system prompt. router=True bo'lsa kategoriya tanlash yo'rig'i qo'shiladi."""
-    mems = [m[:80] for m in memory.all_memories(limit=6)]
+    mems = brain.relevant_facts(user_text)
     mem_text = "; ".join(mems) if mems else "yo'q"
+    summ = brain.summary(chat_id)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     base = (
         "Sen JARVIS — shaxsiy AI yordamchisan (Iron Man uslubi). O'zbekcha, do'stona, aniq. "
         f"Hozir: {now}. "
         "Telegram chat: qisqa va foydali yoz. Formatlash: **qalin**, `kod`, ```kod bloki```, "
-        "'- ' ro'yxat mumkin; jadval ISHLATMA. Ro'yxatda har bandni qalin qilma. "
+        "'- ' ro'yxat mumkin; jadval ISHLATMA. Qalinni kam ishlat (sarlavha yoki eng muhim so'z). "
         "Egangning shaxsiy Telegramini o'qiy olasan; xabar yuborishni tg_send tayyorlaydi, "
         "foydalanuvchi TUGMA bilan tasdiqlaydi (o'zing tasdiq so'rama). "
         "Fayl o'qish: D:\\Tolibjon ichida; yozish/buyruq: faqat workspace. "
@@ -135,8 +143,12 @@ def build_system(router=False):
         "internet qidiruv/havola o'qish, ob-havo, valyuta kursi, eslatma/namoz/tonggi brifing, "
         "todo, xarajat hisobi, shaxsiy Telegram o'qish/yuborish, ovozli xabar, hujjat xulosasi, "
         "guruh moderatsiyasi. Rasm ko'ra olmaysan. "
-        f"Eslaganlaring: {mem_text}"
+        f"Foydalanuvchi (egang) haqida bilganlaring: {mem_text}. "
+        "Sen suhbatdan faktlarni FONDA O'ZING eslab qolasan — 'eslab qol deb ayting' "
+        "deb SO'RAMA. Bilmagan narsangni o'ylab topma. "
     )
+    if summ:
+        base += f"Oldingi suhbat xulosasi: {summ} "
     if router:
         base += (
             "\n\nMUHIM: tool kerak bo'lsa boshqa HECH NARSA yozma, faqat <TOOL:kat> yoz. "
@@ -146,7 +158,9 @@ def build_system(router=False):
             "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
             "pul=xarajat yozish/hisobot/o'chirish (masalan 'taksi 25 ming', 'obed 45k', "
             "'bu oy qancha sarfladim'), "
-            "xot=eslab qolish yoki xotiradan izlash. "
+            "xot=FAQAT aniq buyruq: 'eslab qol', 'unut', 'men haqimda nima bilasan'. "
+            "O'zi haqida gapirsa (ukam..., men ... yoqtiraman, ... ishlayapman) tool KERAK "
+            "EMAS — oddiy javob ber, fakt fonda o'zi saqlanadi. "
             "Bir nechtasi kerak bo'lsa vergul bilan: <TOOL:web,esl>. "
             "Kurs, ob-havo, narx, yangilik, sana-vaqtga bog'liq DOLZARB raqamlarni "
             "HECH QACHON o'zingdan aytma — bilmaysan, <TOOL:web> yoz. "
@@ -259,20 +273,21 @@ def _money_flow(chat_id, user_text):
 def _tool_loop(chat_id, history, user_text, cats):
     """Faza 2: tool aylanmasi — faqat kerakli kategoriya tool'lari bilan."""
     tools = _subset_tools(cats)
-    messages = [{"role": "system", "content": build_system()}]
+    if not _REMEMBER_RE.search(_APOS_RE.sub("", user_text)):
+        # Oddiy "ukam Aziz..." gapida model remember'ni o'zi chaqirib, faktni
+        # "men/mening" shaklida, hammasini muhim deb saqlardi. Buni fondagi
+        # brain.extract qiladi; remember faqat aniq buyruqda beriladi.
+        tools = [t for t in tools if t["function"]["name"] != "remember"] or None
+    messages = [{"role": "system", "content": build_system(chat_id, user_text)}]
     messages += history
     messages.append({"role": "user", "content": user_text})
 
+    tool_kw = {"tools": tools, "tool_choice": "auto"} if tools else {}
     final = ""
     last_result = ""
     for _ in range(15):
         try:
-            resp = _create(
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                max_tokens=MAX_TOKENS,
-            )
+            resp = _create(messages=messages, max_tokens=MAX_TOKENS, **tool_kw)
         except Exception as e:
             s = str(e)
             if "tool_use_failed" in s:
@@ -280,12 +295,7 @@ def _tool_loop(chat_id, history, user_text, cats):
                 resp = _create(messages=messages, max_tokens=MAX_TOKENS)
             elif "output_parse_failed" in s:
                 # Model mulohazasida adashdi — bir marta qayta urinamiz.
-                resp = _create(
-                    messages=messages,
-                    tools=tools,
-                    tool_choice="auto",
-                    max_tokens=MAX_TOKENS,
-                )
+                resp = _create(messages=messages, max_tokens=MAX_TOKENS, **tool_kw)
             else:
                 raise
         msg = resp.choices[0].message
@@ -329,17 +339,18 @@ def _tool_loop(chat_id, history, user_text, cats):
 
 def respond(chat_id, user_text):
     """Bitta xabarga javob. Avval arzon router, kerak bo'lsa kategoriyali tool aylanmasi."""
-    history = _trim_history(memory.get_history(chat_id, limit=6))
+    history = _trim_history(memory.get_history(chat_id, limit=HISTORY_WINDOW))
 
     if _MONEY_RE.search(_APOS_RE.sub("", user_text)):
         final = _money_flow(chat_id, user_text)
         if final is not None:
             memory.add_message(chat_id, "user", user_text)
             memory.add_message(chat_id, "assistant", final)
+            brain.after_turn(chat_id, HISTORY_WINDOW)
             return final
 
     # --- Faza 1: arzon, tool'siz router ---
-    p1_messages = [{"role": "system", "content": build_system(router=True)}]
+    p1_messages = [{"role": "system", "content": build_system(chat_id, user_text, router=True)}]
     p1_messages += history
     p1_messages.append({"role": "user", "content": user_text})
 
@@ -368,8 +379,9 @@ def respond(chat_id, user_text):
 
     m = _TOOL_RE.search(text1)
     if text1 and not m and _CLAIM_RE.search(text1):
-        # Tool'siz "qo'shildi/yozildi" — ishonmaymiz, hamma tool bilan qayta.
-        final = _tool_loop(chat_id, history, user_text, [])
+        # Tool'siz "qo'shildi/yozildi" — ishonmaymiz, "yozadigan" tool'lar bilan
+        # qayta (hammasi ~3800 token bo'lib, daqiqalik limitni urardi).
+        final = _tool_loop(chat_id, history, user_text, ["esl", "todo", "xot"])
     elif text1 and not m:
         final = text1  # Oddiy suhbat — shu yerda tugadi (arzon).
     else:
@@ -380,4 +392,5 @@ def respond(chat_id, user_text):
 
     memory.add_message(chat_id, "user", user_text)
     memory.add_message(chat_id, "assistant", final)
+    brain.after_turn(chat_id, HISTORY_WINDOW)
     return final or "(javob bo'sh chiqdi)"

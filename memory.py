@@ -74,6 +74,15 @@ def init_db():
                 last_fired TEXT DEFAULT ''
             )"""
         )
+        # Aqlli xotira ustunlari (eski bazalarga ham qo'shiladi).
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(memories)")}
+        for col, ddl in (
+            ("category", "TEXT DEFAULT 'boshqa'"),
+            ("importance", "INTEGER DEFAULT 2"),
+            ("updated", "REAL"),
+        ):
+            if col not in cols:
+                c.execute(f"ALTER TABLE memories ADD COLUMN {col} {ddl}")
         c.execute(
             """CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,9 +123,59 @@ def clear_history(chat_id):
 
 # --- Uzoq muddatli xotira (sen haqingda, loyihalar haqida) ---
 
-def add_memory(text):
+def add_memory(text, category="boshqa", importance=2):
+    now = time.time()
     with _conn() as c:
-        c.execute("INSERT INTO memories (text, ts) VALUES (?,?)", (text, time.time()))
+        c.execute(
+            "INSERT INTO memories (text, category, importance, ts, updated) VALUES (?,?,?,?,?)",
+            (text, category, importance, now, now),
+        )
+
+
+def list_memories():
+    """Hamma faktlar: muhimlari va yangilari birinchi."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, text, category, importance FROM memories "
+            "ORDER BY importance DESC, COALESCE(updated, ts) DESC"
+        ).fetchall()
+    return [
+        {"id": r["id"], "text": r["text"], "category": r["category"] or "boshqa",
+         "importance": r["importance"] or 2}
+        for r in rows
+    ]
+
+
+def memory_exists(text):
+    with _conn() as c:
+        row = c.execute(
+            "SELECT 1 FROM memories WHERE lower(trim(text)) = lower(trim(?))", (text,)
+        ).fetchone()
+    return row is not None
+
+
+def update_memory(mid, text, category=None, importance=None):
+    with _conn() as c:
+        c.execute(
+            "UPDATE memories SET text=?, category=COALESCE(?, category), "
+            "importance=COALESCE(?, importance), updated=? WHERE id=?",
+            (text, category, importance, time.time(), mid),
+        )
+
+
+def delete_memory(mid):
+    with _conn() as c:
+        c.execute("DELETE FROM memories WHERE id=?", (mid,))
+
+
+def history_after(chat_id, after_id):
+    """after_id dan keyingi xabarlar (id bilan, eskisi birinchi)."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, role, content FROM history WHERE chat_id=? AND id>? ORDER BY id",
+            (chat_id, after_id),
+        ).fetchall()
+    return [{"id": r["id"], "role": r["role"], "content": r["content"] or ""} for r in rows]
 
 
 def search_memories(query, limit=10):

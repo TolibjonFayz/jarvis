@@ -64,7 +64,10 @@ TOOLS = [
     },
     {
         "name": "remember",
-        "description": "Muhim faktni xotiraga saqlash",
+        "description": (
+            "FAQAT egang aniq 'eslab qol' desa. text=qisqa o'zbekcha fakt, 'men/mening' "
+            "emas: 'Ukasi Aziz', 'Qahvani shakarsiz ichadi'"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {"text": {"type": "string"}},
@@ -73,11 +76,23 @@ TOOLS = [
     },
     {
         "name": "recall",
-        "description": "Xotiradan qidirish",
+        "description": "Xotiradan qidirish. query bo'sh = hamma faktlar (raqamlangan)",
         "input_schema": {
             "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
+            "properties": {"query": {"type": ["string", "null"]}},
+            "required": [],
+        },
+    },
+    {
+        "name": "forget",
+        "description": "Faktni xotiradan o'chiradi: number=recall ro'yxatidagi raqam yoki text=fakt matnidan qism",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "number": {"type": ["number", "null"]},
+                "text": {"type": ["string", "null"]},
+            },
+            "required": [],
         },
     },
     {
@@ -626,12 +641,35 @@ def execute_tool(name, tool_input, chat_id=None):
             return out[:8000] or f"(chiqishsiz tugadi, exit code {result.returncode})"
 
         if name == "remember":
-            memory.add_memory(tool_input["text"])
-            return "Eslab qoldim."
+            text = tool_input["text"].strip()
+            if memory.memory_exists(text):
+                return "Buni allaqachon bilaman."
+            memory.add_memory(text, "boshqa", 3)
+            return f"🧠 Eslab qoldim: {text}"
 
         if name == "recall":
-            hits = memory.search_memories(tool_input["query"])
-            return "\n".join(hits) if hits else "Bu haqda hech narsa topilmadi."
+            facts = memory.list_memories()
+            query = (tool_input.get("query") or "").strip().lower()
+            numbered = list(enumerate(facts, 1))
+            if query:
+                numbered = [(i, f) for i, f in numbered if query in f["text"].lower()]
+            if not numbered:
+                return "Bu haqda hech narsa bilmayman." if query else "Xotira hozircha bo'sh."
+            return "🧠 **Bilganlarim**\n" + "\n".join(f"{i}. {f['text']}" for i, f in numbered)
+
+        if name == "forget":
+            facts = memory.list_memories()
+            num = tool_input.get("number")
+            text = (tool_input.get("text") or "").strip().lower()
+            target = None
+            if num is not None and 1 <= int(num) <= len(facts):
+                target = facts[int(num) - 1]
+            elif text:
+                target = next((f for f in facts if text in f["text"].lower()), None)
+            if not target:
+                return "Bunday fakt topilmadi."
+            memory.delete_memory(target["id"])
+            return f"🗑 Unutdim: {target['text']}"
 
         if name == "web_search":
             return _web_search(tool_input["query"])

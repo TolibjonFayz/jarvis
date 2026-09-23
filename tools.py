@@ -315,6 +315,40 @@ TOOLS = [
         },
     },
     {
+        "name": "calendar_events",
+        "description": (
+            "Google Calendar tadbirlari. period: bugun/ertaga/hafta; yoki date — aniq sana "
+            "YYYY-MM-DD yoki hafta kuni so'zi ('juma') — O'ZING hisoblama"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "period": {"type": ["string", "null"], "enum": ["bugun", "ertaga", "hafta", None]},
+                "date": {"type": ["string", "null"]},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "calendar_add",
+        "description": (
+            "Google Calendar'ga tadbir qo'shadi. date: aniq sana aytilsa YYYY-MM-DD (12-mart -> "
+            "YYYY-03-12), nisbiy bo'lsa SO'ZNING O'ZI: 'ertaga', 'indinga', 'juma', 'kelasi juma' — "
+            "hafta kunini sanaga O'ZING aylantirma. time=HH:MM (bo'lmasa kun bo'yi), duration_min (standart 60)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "date": {"type": "string"},
+                "time": {"type": ["string", "null"]},
+                "duration_min": {"type": ["number", "null"]},
+                "location": {"type": ["string", "null"]},
+            },
+            "required": ["title", "date"],
+        },
+    },
+    {
         "name": "projects_list",
         "description": "Kod loyihalari (git repolar) ro'yxati: oxirgi faollik, branch, commit qilinmaganlar",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -815,13 +849,13 @@ def compose_brief(chat_id, city="Tashkent"):
     if line:
         parts.append(line)
 
-    try:
-        import projects
-        line = projects.brief_line()
-        if line:
-            parts.append(line)
-    except Exception:
-        pass
+    for mod in ("gcal", "projects"):
+        try:
+            line = __import__(mod).brief_line()
+            if line:
+                parts.append(line)
+        except Exception:
+            pass
 
     return "\n\n".join(parts)
 
@@ -1078,6 +1112,19 @@ def execute_tool(name, tool_input, chat_id=None):
 
         if name == "budget_status":
             return budget_status(chat_id)
+
+        if name == "calendar_events":
+            import gcal
+            return FINAL + gcal.events_text(
+                tool_input.get("period") or "bugun", tool_input.get("date") or None
+            )
+
+        if name == "calendar_add":
+            import gcal
+            return FINAL + gcal.add_event(
+                tool_input["title"], tool_input["date"], tool_input.get("time") or None,
+                tool_input.get("duration_min") or 60, tool_input.get("location") or "",
+            )
 
         if name == "projects_list":
             import projects

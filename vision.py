@@ -9,11 +9,11 @@ xabarlari, xarajatlar YUBORILMAYDI. Javobni baribir Groq'dagi agent yozadi
 import base64
 import json
 import logging
-import socket
 import urllib.error
 import urllib.request
 
 import config
+import net
 
 log = logging.getLogger("jarvis.vision")
 
@@ -27,21 +27,7 @@ _PROMPT = (
 )
 
 
-def _prefer_ipv4():
-    """Bu tarmoqda IPv6 ulanish osilib qoladi (DNS esa avval IPv6 beradi) —
-    IPv4 manzillarni oldinga qo'yamiz. IPv6 o'chirilmaydi, faqat tartib."""
-    if getattr(socket.getaddrinfo, "_ipv4_first", False):
-        return
-    orig = socket.getaddrinfo
-
-    def getaddrinfo(*args, **kwargs):
-        return sorted(orig(*args, **kwargs), key=lambda r: r[0] != socket.AF_INET)
-
-    getaddrinfo._ipv4_first = True
-    socket.getaddrinfo = getaddrinfo
-
-
-_prefer_ipv4()
+net.prefer_ipv4()
 
 
 class VisionError(Exception):

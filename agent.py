@@ -93,6 +93,7 @@ TOOL_CATEGORIES = {
     ],
     "xot": ["remember", "recall", "forget"],
     "loyiha": ["projects_list", "project_status", "project_changes"],
+    "kal": ["calendar_events", "calendar_add"],
 }
 
 _TOOL_RE = re.compile(r"<\s*TOOL\s*:?\s*([a-z, ]*)>?", re.IGNORECASE)
@@ -121,6 +122,7 @@ _FORCED_ROUTES = [
     (re.compile(r"dayjest|daydjest|digest|kanal", re.IGNORECASE), ["dayjest", "tg"]),
     (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
     (re.compile(r"loyiha|\brepo|commit|\bgit\b|branch|nima qildim", re.IGNORECASE), ["loyiha"]),
+    (re.compile(r"kalendar|calendar|taqvim|uchrashuv|meeting|tadbir|\bmajlis", re.IGNORECASE), ["kal"]),
 ]
 
 _REMEMBER_RE = re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE)
@@ -134,6 +136,8 @@ def _trim_history(msgs, each=500):
     ]
 
 
+_WEEKDAYS = ["dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba", "yakshanba"]
+
 # Modelga beriladigan oxirgi xabarlar soni; undan eskisi brain xulosasida.
 HISTORY_WINDOW = 6
 
@@ -143,7 +147,8 @@ def build_system(chat_id, user_text, router=False):
     mems = brain.relevant_facts(user_text)
     mem_text = "; ".join(mems) if mems else "yo'q"
     summ = brain.summary(chat_id)
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    dt = datetime.datetime.now()
+    now = f"{dt:%Y-%m-%d %H:%M}, {_WEEKDAYS[dt.weekday()]}"
     base = (
         "Sen FRIDAY — shaxsiy AI yordamchisan (Iron Man'dagi F.R.I.D.A.Y. uslubi: xotirjam, "
         "aniq, ozgina hazilkash). O'zbekcha, do'stona. Ismingni so'rashsa — FRIDAY. "
@@ -174,6 +179,7 @@ def build_system(chat_id, user_text, router=False):
             "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
             "pul=xarajat yozish/hisobot/o'chirish/oylik budjet (masalan 'taksi 25 ming', 'obed 45k', "
             "'bu oy qancha sarfladim'), "
+            "kal=Google Calendar (uchrashuv/tadbir ko'rish yoki qo'shish), "
             "loyiha=egangning KOD loyihalari/git (ERP, Climavent, bilim manba, fit-uz, "
             "shelf-sort...): holati, 'ERPda bugun nima o'zgardi', 'bugun nima qildim', "
             "xot=FAQAT aniq buyruq: 'eslab qol', 'unut', 'men haqimda nima bilasan'. "

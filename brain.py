@@ -102,13 +102,13 @@ def summary(chat_id):
 # --- Faktlarni ajratish ---
 
 _EXTRACT_SYSTEM = (
-    "Sen xotira menejerisan. Egasi (foydalanuvchi) va uning AI yordamchisi JARVIS suhbatidan "
+    "Sen xotira menejerisan. Egasi (foydalanuvchi) va uning AI yordamchisi FRIDAY suhbatidan "
     "egasi haqida UZOQ MUDDAT foydali faktlarni ajratasan.\n"
     "SAQLA: ism, oila va yaqinlar, yashash joyi, ishi, loyihalari, ko'nikmalari, "
     "afzalliklari/odatlari (nima yoqadi/yoqmaydi), rejalari va maqsadlari, "
     "tanishlari (kim kim), muhim sanalar.\n"
     "SAQLAMA: salomlashish, bir martalik savollar, ob-havo, valyuta, xarajatlar va "
-    "eslatmalar (ular alohida saqlanadi), JARVISning o'zi haqidagi gaplar, taxminlar, "
+    "eslatmalar (ular alohida saqlanadi), FRIDAYning o'zi haqidagi gaplar, taxminlar, "
     "vaqtinchalik holat (charchadim, hozir ovqatlanyapman).\n"
     "Faktni o'zbek tilida, qisqa (100 belgigacha), egasi haqida uchinchi shaxssiz yoz: "
     "'Ismi Tolibjon', 'Ukasi Aziz, 20 yosh', 'Qahvani shakarsiz ichadi'.\n"
@@ -139,7 +139,7 @@ def extract(chat_id, force=False):
         return 0
 
     dialog = "\n".join(
-        f"{'Ega' if m['role'] == 'user' else 'JARVIS'}: "
+        f"{'Ega' if m['role'] == 'user' else 'FRIDAY'}: "
         f"{m['content'][:400] if m['role'] == 'user' else m['content'][:150]}"
         for m in msgs
     )
@@ -198,7 +198,7 @@ def summarize(chat_id, window):
         return False
     old = old[:40]
     dialog = "\n".join(
-        f"{'Ega' if m['role'] == 'user' else 'JARVIS'}: {m['content'][:300]}" for m in old
+        f"{'Ega' if m['role'] == 'user' else 'FRIDAY'}: {m['content'][:300]}" for m in old
     )
     prompt = f"Oldingi xulosa:\n{summary(chat_id) or '(yo`q)'}\n\nYangi xabarlar:\n{dialog}"
     text = _chat(_SUMMARY_SYSTEM, prompt, max_tokens=500)

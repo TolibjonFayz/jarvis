@@ -43,7 +43,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("jarvis")
 
-# Keraksiz shovqinni o'chiramiz — faqat JARVIS log'lari va haqiqiy muammolar qolsin.
+# Keraksiz shovqinni o'chiramiz — faqat FRIDAY log'lari va haqiqiy muammolar qolsin.
 for _noisy in ("httpx", "httpcore", "apscheduler", "telethon", "telegram.ext.Application"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
@@ -72,7 +72,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         return
     await update.message.reply_text(
-        "Salom bro! Men JARVIS — shaxsiy AI yordamching.\n"
+        "Salom bro! Men FRIDAY — shaxsiy AI yordamching.\n"
         "Kod yozaman, fikr aytaman, fayllar bilan ishlayman.\n"
         "Holat: /status · Suhbatni tozalash: /reset"
     )
@@ -87,7 +87,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     h, m = divmod(rem // 60, 60)
     uptime = (f"{d} kun " if d else "") + f"{h} soat {m} daqiqa"
 
-    lines = ["🤖 **JARVIS holati**", f"⏱ Ishlayapti: {uptime}"]
+    lines = ["🤖 **FRIDAY holati**", f"⏱ Ishlayapti: {uptime}"]
     calls = agent.STATS["calls"]
     if calls:
         lines.append("\n**Groq chaqiruvlari** (ishga tushgandan beri)")
@@ -217,7 +217,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ovozli xabar: Whisper bilan tushunadi, JARVIS javobini matn + OVOZ bilan beradi."""
+    """Ovozli xabar: Whisper bilan tushunadi, FRIDAY javobini matn + OVOZ bilan beradi."""
     if not _authorized(update):
         return
     msg = update.effective_message
@@ -427,7 +427,7 @@ def _media_file_id(msg):
 
 
 async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Matn moderatsiyasi: so'kinish/haqorat. Guruh xabarlari JARVIS'ga BORMAYDI."""
+    """Matn moderatsiyasi: so'kinish/haqorat. Guruh xabarlari FRIDAY'ga BORMAYDI."""
     msg = update.effective_message
     if not msg or not msg.text or not msg.from_user:
         return
@@ -727,13 +727,13 @@ def main():
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CallbackQueryHandler(on_button))
-    # Shaxsiy chat -> JARVIS agent; guruhlar -> faqat moderatsiya.
+    # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, on_message
         )
     )
-    # Ovozli xabarlar (shaxsiy chat) -> Whisper + JARVIS + ovozli javob.
+    # Ovozli xabarlar (shaxsiy chat) -> Whisper + FRIDAY + ovozli javob.
     app.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO), on_voice
@@ -786,7 +786,7 @@ def main():
         log.warning("job_queue yo'q — eslatmalar ishlamaydi. "
                     "O'rnating: pip install \"python-telegram-bot[job-queue]\"")
 
-    log.info("JARVIS ishga tushdi. To'xtatish: Ctrl+C")
+    log.info("FRIDAY ishga tushdi. To'xtatish: Ctrl+C")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

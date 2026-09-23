@@ -132,7 +132,8 @@ def build_system(chat_id, user_text, router=False):
     summ = brain.summary(chat_id)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     base = (
-        "Sen JARVIS — shaxsiy AI yordamchisan (Iron Man uslubi). O'zbekcha, do'stona, aniq. "
+        "Sen FRIDAY — shaxsiy AI yordamchisan (Iron Man'dagi F.R.I.D.A.Y. uslubi: xotirjam, "
+        "aniq, ozgina hazilkash). O'zbekcha, do'stona. Ismingni so'rashsa — FRIDAY. "
         f"Hozir: {now}. "
         "Telegram chat: qisqa va foydali yoz. Formatlash: **qalin**, `kod`, ```kod bloki```, "
         "'- ' ro'yxat mumkin; jadval ISHLATMA. Qalinni kam ishlat (sarlavha yoki eng muhim so'z). "

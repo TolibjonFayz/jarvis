@@ -1,6 +1,6 @@
-# JARVIS'ni Windows'ga kirganda avtomatik ishga tushiradigan vazifa yaratadi.
+# FRIDAY'ni Windows'ga kirganda avtomatik ishga tushiradigan vazifa yaratadi.
 # Ishlatish:   powershell -ExecutionPolicy Bypass -File setup_autostart.ps1
-# O'chirish:   Unregister-ScheduledTask -TaskName JARVIS -Confirm:$false
+# O'chirish:   Unregister-ScheduledTask -TaskName FRIDAY -Confirm:$false
 
 $ErrorActionPreference = "Stop"
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -16,7 +16,7 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -MultipleInstances IgnoreNew
 
-Register-ScheduledTask -TaskName "JARVIS" -Action $action -Trigger $trigger `
-    -Settings $settings -Description "JARVIS Telegram bot (run_forever.pyw)" -Force | Out-Null
+Register-ScheduledTask -TaskName "FRIDAY" -Action $action -Trigger $trigger `
+    -Settings $settings -Description "FRIDAY Telegram bot (run_forever.pyw)" -Force | Out-Null
 
-Write-Host "Tayyor: JARVIS vazifasi yaratildi. Hozir ishga tushirish: Start-ScheduledTask -TaskName JARVIS"
+Write-Host "Tayyor: FRIDAY vazifasi yaratildi. Hozir ishga tushirish: Start-ScheduledTask -TaskName FRIDAY"

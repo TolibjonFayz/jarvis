@@ -1,4 +1,4 @@
-"""Windows'da JARVIS'ni fonda doimiy ishlatuvchi nazoratchi (supervisor).
+"""Windows'da FRIDAY'ni fonda doimiy ishlatuvchi nazoratchi (supervisor).
 
 - Oynasiz ishlaydi (.pyw -> pythonw.exe).
 - bot.py yiqilsa 10 soniyadan keyin qayta ishga tushiradi.

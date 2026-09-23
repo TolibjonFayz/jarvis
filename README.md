@@ -1,6 +1,6 @@
-# JARVIS — shaxsiy AI yordamchi (Telegram bot, Groq)
+# FRIDAY — shaxsiy AI yordamchi (Telegram bot, Groq)
 
-Iron Man'ning JARVIS'iga o'xshagan shaxsiy AI agent. Telegram orqali gaplashadi,
+Iron Man'ning F.R.I.D.A.Y.'iga o'xshagan shaxsiy AI agent. Telegram orqali gaplashadi,
 kod yozadi, fikr aytadi, fayllar bilan ishlaydi va sen haqingda eslab qoladi.
 **Miya: Groq (tekin API, dunyoning hamma yeridan ishlaydi).**
 
@@ -101,7 +101,7 @@ Har yangi imkoniyat = yangi **tool** (`tools.py` ga qo'shasan).
 
 ## Userbot: shaxsiy akkaunt (2-bosqich) ✅
 
-JARVIS sening SHAXSIY Telegram akkauntingdan suhbatlarni o'qiy oladi va
+FRIDAY sening SHAXSIY Telegram akkauntingdan suhbatlarni o'qiy oladi va
 (faqat sen tasdiqlaganingdan keyin!) xabar yubora oladi.
 
 **Ulash (bir marta):**
@@ -121,7 +121,7 @@ JARVIS sening SHAXSIY Telegram akkauntingdan suhbatlarni o'qiy oladi va
 
 ⚠️ **Diqqat:**
 - `data/userbot.session` fayli — akkauntingga to'liq kirish kaliti. Hech kimga berma!
-- Telegram spam/avtomatik ommaviy xabarlarni ban qiladi. JARVIS'ni faqat o'qish va
+- Telegram spam/avtomatik ommaviy xabarlarni ban qiladi. FRIDAY'ni faqat o'qish va
   yakka xabarlar uchun ishlat — ommaviy yuborish qildirma.
 
 ## Guruh moderatori 🛡️
@@ -148,7 +148,7 @@ buzg'unchini ogohlantiradi va takrorlansa guruhdan chiqaradi.
 - 1-2 buzilish: xabar o'chiriladi + ogohlantirish (`MOD_WARN_LIMIT`, standart 2)
 - Keyingisi: guruhdan chiqariladi + sabab yoziladi
 - **Egasi (OWNER_ID) va guruh adminlari tegilmaydi**
-- Guruh xabarlari JARVIS "miya"siga bormaydi — faqat moderatsiya (token tejash)
+- Guruh xabarlari FRIDAY "miya"siga bormaydi — faqat moderatsiya (token tejash)
 
 ### Xavfsizlik (yangi a'zolar + linklar)
 
@@ -183,10 +183,10 @@ a'zolarni cheklash (mute — CAPTCHA uchun).
   `_THRESHOLD` bilan sozlanadi.
 - Chuqur video skaner userbot ulanган bo'lishini talab qiladi (2-bosqich).
 
-## Ovoz — gaplashadigan JARVIS 🎤
+## Ovoz — gaplashadigan FRIDAY 🎤
 
 Shaxsiy chatda **ovozli xabar** yuborsang:
-1. JARVIS tushunadi (Groq Whisper — tekin, alohida budjet)
+1. FRIDAY tushunadi (Groq Whisper — tekin, alohida budjet)
 2. Nima eshitganini ko'rsatadi: 🎤 «...»
 3. Javobni **matn + OVOZ** bilan qaytaradi (edge-tts, o'zbek ovozi — Sardor)
 
@@ -200,12 +200,12 @@ VOICE_LANG=uz                    # '' = til avto-aniqlash (ruscha/inglizcha uchu
 ```
 
 > Halol eslatma: Whisper'ning o'zbekchasi mukammal emas — ba'zi so'zlarni xato
-> yozishi mumkin. Aniq va sekin gapirsang yaxshi tushunadi, JARVIS miyasi esa
+> yozishi mumkin. Aniq va sekin gapirsang yaxshi tushunadi, FRIDAY miyasi esa
 > kichik xatolarni kontekstdan tushunib ketadi.
 
 ## Kundalik avto-funksiyalar ⚡
 
-JARVIS'ga yozib yoqasan (bir marta):
+FRIDAY'ga yozib yoqasan (bir marta):
 - **Avto-namoz:** «har kunga namoz eslatmasini yoq» → har kuni ertalab o'zi qo'yadi
 - **Tonggi brifing:** «tonggi brifingni yoq» → har kuni soat `BRIEF_HOUR` (standart 7:00) da
   ob-havo + namoz vaqtlari + valyuta + bugungi eslatmalarni bitta xabar qilib yuboradi

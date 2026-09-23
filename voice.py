@@ -1,6 +1,6 @@
 """Ovoz: STT (Groq Whisper, tekin) + TTS (edge-tts, tekin, o'zbek ovozi).
 
-Whisper alohida kunlik budjetga ega — JARVIS suhbat tokenlarini yemaydi.
+Whisper alohida kunlik budjetga ega — FRIDAY suhbat tokenlarini yemaydi.
 """
 import os
 import re

@@ -46,7 +46,7 @@ MOD_LINKS = os.getenv("MOD_LINKS", "1") == "1"
 
 # --- Ovoz (STT + TTS) ---
 VOICE_REPLY = os.getenv("VOICE_REPLY", "1") == "1"  # javobni ovoz bilan ham yuborish
-VOICE_NAME = os.getenv("VOICE_NAME", "uz-UZ-SardorNeural")  # yoki uz-UZ-MadinaNeural
+VOICE_NAME = os.getenv("VOICE_NAME", "uz-UZ-MadinaNeural")  # FRIDAY; yoki uz-UZ-SardorNeural
 VOICE_LANG = os.getenv("VOICE_LANG", "uz")  # Whisper tili ('' = avto-aniqlash)
 STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3")
 

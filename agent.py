@@ -74,6 +74,7 @@ TOOL_CATEGORIES = {
         "set_recurring_reminder", "list_recurring", "cancel_recurring",
     ],
     "todo": ["add_todo", "list_todos", "complete_todo"],
+    "pul": ["add_expense", "expense_report", "list_expenses", "delete_expense"],
     "xot": ["remember", "recall"],
 }
 
@@ -81,6 +82,21 @@ _TOOL_RE = re.compile(r"<\s*TOOL\s*:?\s*([a-z, ]*)>?", re.IGNORECASE)
 
 # Tool nomi -> kategoriyasi (router xatosidan kategoriya aniqlash uchun).
 _TOOL2CAT = {t: c for c, ts in TOOL_CATEGORIES.items() for t in ts}
+
+# Pul xabarlari ("taksi 25 ming", "obed 45k", "bu oy qancha sarfladim") routerni
+# chetlab to'g'ri "pul" tool'lariga boradi: router tarixdagi "✅ yozildi"
+# javoblariga taqlid qilib, tool chaqirmasdan yolg'on tasdiq berardi.
+_MONEY_RE = re.compile(
+    r"\d[\d\s.,]*\s*(k|ming|mln|million|milion|som|sum)\b|xarajat|sarfla|sarf\b",
+    re.IGNORECASE,
+)
+_APOS_RE = re.compile(r"['‘’ʻʼ`]")
+
+# Router tool'siz shunday desa — bajarmasdan "bajardim" deyapti (gallyutsinatsiya).
+_CLAIM_RE = re.compile(
+    r"✅|qo.?shildi|yozildi|o.?chirildi|saqlandi|belgilandi|qo.?yildi",
+    re.IGNORECASE,
+)
 
 
 def _trim_history(msgs, each=500):
@@ -112,8 +128,12 @@ def build_system(router=False):
             "file=fayl/kod yozish/buyruq bajarish, "
             "esl=eslatma/namoz/avto-namoz/tonggi brifing/takroriy eslatma, "
             "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
+            "pul=xarajat yozish/hisobot/o'chirish (masalan 'taksi 25 ming', 'obed 45k', "
+            "'bu oy qancha sarfladim'), "
             "xot=eslab qolish yoki xotiradan izlash. "
             "Bir nechtasi kerak bo'lsa vergul bilan: <TOOL:web,esl>. "
+            "Kurs, ob-havo, narx, yangilik, sana-vaqtga bog'liq DOLZARB raqamlarni "
+            "HECH QACHON o'zingdan aytma — bilmaysan, <TOOL:web> yoz. "
             "Aks holda (suhbat, savol, maslahat) to'g'ridan-to'g'ri QISQA javob ber."
         )
     return base
@@ -129,6 +149,54 @@ def _subset_tools(cats):
     return [t for t in _tools if t["function"]["name"] in allowed]
 
 
+_NOT_EXPENSE = {
+    "type": "function",
+    "function": {
+        "name": "not_expense",
+        "description": "Xabar xarajat yozish/hisobot/o'chirish haqida EMAS bo'lsa",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+}
+
+
+def _money_flow(chat_id, user_text):
+    """Pul xabari: model FAQAT tool tanlaydi, javob = tool natijasi so'zma-so'z.
+
+    Model natijani o'z so'zi bilan qayta aytganda summalarni buzardi
+    (1 390 000 -> "1 365 000"), pulda bu yaramaydi. Tarix ham berilmaydi —
+    unda eski "✅" javoblar bor, model ularga taqlid qiladi.
+    Xabar aslida pul haqida bo'lmasa — None (oddiy yo'lga qaytadi).
+    """
+    now = datetime.datetime.now()
+    system = (
+        f"Bugun {now:%Y-%m-%d} ({now:%A}). Foydalanuvchi xabarini xarajat "
+        "tool'iga aylantir. Summalar so'mda."
+    )
+    try:
+        resp = _create(
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_text},
+            ],
+            tools=_subset_tools(["pul"]) + [_NOT_EXPENSE],
+            tool_choice="required",
+            max_tokens=min(768, MAX_TOKENS),
+        )
+    except Exception:
+        return None
+    calls = resp.choices[0].message.tool_calls or []
+    if not calls or any(tc.function.name == "not_expense" for tc in calls):
+        return None
+    results = []
+    for tc in calls:
+        try:
+            args = json.loads(tc.function.arguments or "{}")
+        except Exception:
+            args = {}
+        results.append(execute_tool(tc.function.name, args, chat_id))
+    return "\n\n".join(results)
+
+
 def _tool_loop(chat_id, history, user_text, cats):
     """Faza 2: tool aylanmasi — faqat kerakli kategoriya tool'lari bilan."""
     tools = _subset_tools(cats)
@@ -137,6 +205,7 @@ def _tool_loop(chat_id, history, user_text, cats):
     messages.append({"role": "user", "content": user_text})
 
     final = ""
+    last_result = ""
     for _ in range(15):
         try:
             resp = _create(
@@ -186,6 +255,7 @@ def _tool_loop(chat_id, history, user_text, cats):
                 except Exception:
                     args = {}
                 result = execute_tool(tc.function.name, args, chat_id)
+                last_result = result
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": result}
                 )
@@ -194,12 +264,20 @@ def _tool_loop(chat_id, history, user_text, cats):
         final = _clean(msg.content)
         break
 
-    return final
+    # Tool ishladi-yu, model javob yozmadi — hech bo'lmasa natijani ko'rsatamiz.
+    return final or last_result
 
 
 def respond(chat_id, user_text):
     """Bitta xabarga javob. Avval arzon router, kerak bo'lsa kategoriyali tool aylanmasi."""
     history = _trim_history(memory.get_history(chat_id, limit=6))
+
+    if _MONEY_RE.search(_APOS_RE.sub("", user_text)):
+        final = _money_flow(chat_id, user_text)
+        if final is not None:
+            memory.add_message(chat_id, "user", user_text)
+            memory.add_message(chat_id, "assistant", final)
+            return final
 
     # --- Faza 1: arzon, tool'siz router ---
     p1_messages = [{"role": "system", "content": build_system(router=True)}]
@@ -230,7 +308,10 @@ def respond(chat_id, user_text):
         text1 = f"<TOOL:{cat}>"
 
     m = _TOOL_RE.search(text1)
-    if text1 and not m:
+    if text1 and not m and _CLAIM_RE.search(text1):
+        # Tool'siz "qo'shildi/yozildi" — ishonmaymiz, hamma tool bilan qayta.
+        final = _tool_loop(chat_id, history, user_text, [])
+    elif text1 and not m:
         final = text1  # Oddiy suhbat — shu yerda tugadi (arzon).
     else:
         cats = []

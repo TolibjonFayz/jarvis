@@ -74,6 +74,17 @@ def init_db():
                 last_fired TEXT DEFAULT ''
             )"""
         )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER,
+                amount INTEGER,
+                category TEXT,
+                note TEXT,
+                day TEXT,
+                ts REAL
+            )"""
+        )
 
 
 # --- Suhbat tarixi (joriy suhbatni eslab turish uchun) ---
@@ -308,3 +319,48 @@ def list_pending_reminders(chat_id):
             (chat_id, now),
         ).fetchall()
     return [(r["text"], r["due_ts"]) for r in rows]
+
+
+# --- Xarajatlar (so'mda) ---
+
+def add_expense(chat_id, amount, category, note, day):
+    """day = 'YYYY-MM-DD' (xarajat qilingan kun)."""
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO expenses (chat_id, amount, category, note, day, ts) "
+            "VALUES (?,?,?,?,?,?)",
+            (chat_id, amount, category, note, day, time.time()),
+        )
+
+
+def recent_expenses(chat_id, limit=10):
+    """Oxirgi kiritilganlar (eng yangisi birinchi)."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, amount, category, note, day FROM expenses "
+            "WHERE chat_id=? ORDER BY id DESC LIMIT ?",
+            (chat_id, limit),
+        ).fetchall()
+    return [(r["id"], r["amount"], r["category"], r["note"], r["day"]) for r in rows]
+
+
+def delete_expense(chat_id, number):
+    """recent_expenses ro'yxatidagi raqam bo'yicha o'chiradi (1 = eng oxirgisi)."""
+    rows = recent_expenses(chat_id, limit=max(number, 1))
+    if not (1 <= number <= len(rows)):
+        return None
+    row = rows[number - 1]
+    with _conn() as c:
+        c.execute("DELETE FROM expenses WHERE id=?", (row[0],))
+    return row
+
+
+def expenses_between(chat_id, start, end):
+    """start..end (ikkalasi ham kiradi, 'YYYY-MM-DD') oralig'idagi xarajatlar."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT amount, category, note, day FROM expenses "
+            "WHERE chat_id=? AND day BETWEEN ? AND ? ORDER BY day, id",
+            (chat_id, start, end),
+        ).fetchall()
+    return [(r["amount"], r["category"], r["note"], r["day"]) for r in rows]

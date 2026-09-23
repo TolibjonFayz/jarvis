@@ -12,6 +12,18 @@ import urllib.parse
 from config import WORKSPACE, READ_ROOT, BRIEF_HOUR
 import memory
 
+# Xarajat kategoriyalari — qat'iy ro'yxat, aks holda hisobotda "ovqat",
+# "tushlik", "obed" alohida qatorlarga bo'linib ketadi.
+EXPENSE_CATEGORIES = [
+    "ovqat", "transport", "uy", "kommunal", "aloqa", "kiyim",
+    "sog'liq", "ta'lim", "ko'ngilochar", "sovg'a", "boshqa",
+]
+_PERIODS = {
+    "bugun": "Bugun", "kecha": "Kecha", "hafta": "Shu hafta",
+    "otgan_hafta": "O'tgan hafta", "oy": "Shu oy",
+    "otgan_oy": "O'tgan oy", "yil": "Shu yil",
+}
+
 # Qisqa tool ta'riflari (token tejash uchun).
 TOOLS = [
     {
@@ -212,6 +224,65 @@ TOOLS = [
         },
     },
     {
+        "name": "add_expense",
+        "description": (
+            "Xarajat(lar)ni yozadi — xabardagi HAR BIR xarajat items'da alohida. "
+            "amount=so'mda butun son (25 ming=25000, 45k=45000, 1.2 mln=1200000). "
+            "day=YYYY-MM-DD, faqat bugun bo'lmasa (kecha va h.k.). "
+            "kommunal=svet/gaz/suv/chiqindi, aloqa=telefon/internet, "
+            "uy=ijara/jihoz/xo'jalik, transport=taksi/benzin/metro."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "amount": {"type": "number"},
+                            "category": {"type": "string", "enum": EXPENSE_CATEGORIES},
+                            "note": {"type": "string"},
+                            "day": {"type": "string"},
+                        },
+                        "required": ["amount", "category"],
+                    },
+                },
+            },
+            "required": ["items"],
+        },
+    },
+    {
+        "name": "expense_report",
+        "description": "Xarajatlar hisoboti: jami, kategoriyalar bo'yicha, eng kattalari.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "period": {"type": "string", "enum": list(_PERIODS)},
+                "category": {"type": "string", "enum": EXPENSE_CATEGORIES},
+            },
+            "required": ["period"],
+        },
+    },
+    {
+        "name": "list_expenses",
+        "description": "Oxirgi kiritilgan xarajatlar (raqamlangan, 1=eng oxirgisi).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"limit": {"type": "number"}},
+            "required": [],
+        },
+    },
+    {
+        "name": "delete_expense",
+        "description": "Xarajatni o'chiradi. number=list_expenses raqami (1=eng oxirgisi).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"number": {"type": "number"}},
+            "required": ["number"],
+        },
+    },
+    {
         "name": "tg_chats",
         "description": "Shaxsiy Telegram: oxirgi suhbatlar ro'yxati",
         "input_schema": {
@@ -400,6 +471,63 @@ def _get_currency(code=None):
     return "\n".join(out)
 
 
+def _som(n):
+    return f"{int(n):,}".replace(",", " ") + " so'm"
+
+
+def _period_range(period, today=None):
+    """Davr nomi -> (boshlanish, tugash) sanalari (ikkalasi ham kiradi)."""
+    d = today or datetime.date.today()
+    if period == "bugun":
+        return d, d
+    if period == "kecha":
+        y = d - datetime.timedelta(days=1)
+        return y, y
+    if period == "hafta":
+        return d - datetime.timedelta(days=d.weekday()), d
+    if period == "otgan_hafta":
+        start = d - datetime.timedelta(days=d.weekday() + 7)
+        return start, start + datetime.timedelta(days=6)
+    if period == "oy":
+        return d.replace(day=1), d
+    if period == "otgan_oy":
+        end = d.replace(day=1) - datetime.timedelta(days=1)
+        return end.replace(day=1), end
+    if period == "yil":
+        return d.replace(month=1, day=1), d
+    raise ValueError(f"noma'lum davr: {period}")
+
+
+def expense_report(chat_id, period, category=None):
+    start, end = _period_range(period)
+    rows = memory.expenses_between(chat_id, start.isoformat(), end.isoformat())
+    if category:
+        rows = [r for r in rows if r[1] == category]
+    label = _PERIODS[period] + (f" ({category})" if category else "")
+    if not rows:
+        return f"{label}: xarajat yozilmagan."
+
+    total = sum(r[0] for r in rows)
+    out = [f"{label}: jami {_som(total)}, {len(rows)} ta xarajat"]
+    days = (end - start).days + 1
+    if days > 1:
+        out.append(f"Kuniga o'rtacha: {_som(total / days)}")
+
+    if not category:
+        by_cat = {}
+        for amount, cat, _note, _day in rows:
+            by_cat[cat] = by_cat.get(cat, 0) + amount
+        out.append("Kategoriyalar:")
+        for cat, s in sorted(by_cat.items(), key=lambda x: -x[1]):
+            out.append(f"  {cat}: {_som(s)} ({round(s * 100 / total)}%)")
+
+    top = sorted(rows, key=lambda r: -r[0])[:3]
+    out.append("Eng kattalari:")
+    for amount, cat, note, day in top:
+        out.append(f"  {day[5:]} {note or cat}: {_som(amount)}")
+    return "\n".join(out)
+
+
 def compose_brief(chat_id, city="Tashkent"):
     """Tonggi brifing: sana + ob-havo + namoz vaqtlari + bugungi eslatmalar + valyuta."""
     today = datetime.date.today()
@@ -434,6 +562,11 @@ def compose_brief(chat_id, city="Tashkent"):
             for t, ts in today_rem
         ]
         parts.append("⏰ Bugungi eslatmalar:\n" + "\n".join(lines))
+
+    yday = (today - datetime.timedelta(days=1)).isoformat()
+    spent = sum(r[0] for r in memory.expenses_between(chat_id, yday, yday))
+    if spent:
+        parts.append(f"💸 Kecha sarflading: {_som(spent)}")
 
     return "\n\n".join(parts)
 
@@ -624,6 +757,52 @@ def execute_tool(name, tool_input, chat_id=None):
             num = int(num) if num is not None and num != "" else None
             done = memory.complete_todo(chat_id, num, tool_input.get("text"))
             return f"Bajarildi ✅: {done}" if done else "Bunday vazifa topilmadi."
+
+        if name == "add_expense":
+            # Eski format (bitta xarajat to'g'ridan-to'g'ri) ham qabul qilinadi.
+            items = tool_input.get("items") or [tool_input]
+            today = datetime.date.today().isoformat()
+            lines = []
+            for it in items:
+                amount = int(round(float(it["amount"])))
+                if amount <= 0:
+                    lines.append("❌ Summa musbat bo'lishi kerak.")
+                    continue
+                category = it.get("category")
+                if category not in EXPENSE_CATEGORIES:
+                    category = "boshqa"
+                day = it.get("day") or today
+                try:
+                    datetime.date.fromisoformat(day)
+                except ValueError:
+                    day = today
+                note = (it.get("note") or "").strip()
+                memory.add_expense(chat_id, amount, category, note, day)
+                when = "" if day == today else f" ({day[5:]})"
+                lines.append(f"✅ {note or category}{when} — {_som(amount)} [{category}]")
+            spent = sum(r[0] for r in memory.expenses_between(chat_id, today, today))
+            lines.append(f"Bugun jami: {_som(spent)}")
+            return "\n".join(lines)
+
+        if name == "expense_report":
+            return expense_report(chat_id, tool_input["period"], tool_input.get("category"))
+
+        if name == "list_expenses":
+            limit = int(tool_input.get("limit") or 10)
+            rows = memory.recent_expenses(chat_id, min(max(limit, 1), 30))
+            if not rows:
+                return "Hali xarajat yozilmagan."
+            return "\n".join(
+                f"{i}. {day[5:]} {note or cat} — {_som(amount)} [{cat}]"
+                for i, (_id, amount, cat, note, day) in enumerate(rows, 1)
+            )
+
+        if name == "delete_expense":
+            row = memory.delete_expense(chat_id, int(tool_input["number"]))
+            if not row:
+                return "Bunday raqamli xarajat yo'q."
+            _id, amount, cat, note, day = row
+            return f"O'chirildi: {day[5:]} {note or cat} — {_som(amount)}"
 
         return f"Noma'lum tool: {name}"
 

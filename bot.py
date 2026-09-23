@@ -75,7 +75,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Salom bro! Men FRIDAY — shaxsiy AI yordamching.\n"
         "Kod yozaman, fikr aytaman, fayllar bilan ishlayman.\n"
-        "Holat: /status · Suhbatni tozalash: /reset"
+        "/dayjest — kanallar xulosasi · /javobsiz — kim javob kutyapti\n"
+        "/status — holat · /reset — suhbatni tozalash"
     )
 
 
@@ -720,6 +721,71 @@ async def daily_prayers_job(context: ContextTypes.DEFAULT_TYPE):
             log.warning("Avto-namoz xatosi [%s]", chat_id)
 
 
+UNANSWERED_ALERT_HOURS = (12, 19)
+
+
+async def digest_job(context: ContextTypes.DEFAULT_TYPE):
+    """Har 10 daqiqada: dayjest soati o'tgan va bugun yuborilmagan bo'lsa — yuboradi.
+    (run_daily emas: bot o'sha soatda o'chiq bo'lsa ham, yoqilganda yetkazadi.)"""
+    from datetime import datetime as _dt
+    import digest
+    now = _dt.now()
+    today = now.strftime("%Y-%m-%d")
+    for chat_id in memory.settings_where("digest", "1"):
+        hour = int(memory.get_setting(chat_id, "digest_hour", "21"))
+        if now.hour < hour or memory.get_setting(chat_id, "digest_last") == today:
+            continue
+        # Avval belgilaymiz — xato bo'lsa har 10 daqiqada qayta urinib spam qilmasin.
+        memory.set_setting(chat_id, "digest_last", today)
+        try:
+            text = await asyncio.to_thread(digest.build_digest, chat_id)
+            await _send_md(context.bot, chat_id, text)
+            log.info("Dayjest yuborildi [%s]", chat_id)
+        except Exception as e:
+            log.warning("Dayjest xatosi [%s]: %s", chat_id, e)
+
+
+async def unanswered_job(context: ContextTypes.DEFAULT_TYPE):
+    """12:00 va 19:00 (o'tkazib yuborilgan bo'lsa — keyinroq): javobsizlar ro'yxati.
+    Hamma javob berilgan bo'lsa jim turadi."""
+    from datetime import datetime as _dt
+    import digest
+    now = _dt.now()
+    slots = [h for h in UNANSWERED_ALERT_HOURS if now.hour >= h]
+    if not slots:
+        return
+    slot = f"{now:%Y-%m-%d}-{slots[-1]}"
+    for chat_id in memory.settings_where("unanswered_alerts", "1"):
+        if memory.get_setting(chat_id, "unanswered_slot") == slot:
+            continue
+        memory.set_setting(chat_id, "unanswered_slot", slot)
+        try:
+            text = await asyncio.to_thread(digest.unanswered_text)
+            if text:
+                await _send_md(context.bot, chat_id, text)
+        except Exception as e:
+            log.warning("Javobsizlar tekshiruvi xatosi [%s]: %s", chat_id, e)
+
+
+async def cmd_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        return
+    import digest
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    text = await asyncio.to_thread(digest.build_digest, chat_id)
+    await _send_md(context.bot, chat_id, text)
+
+
+async def cmd_unanswered(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        return
+    import digest
+    chat_id = update.effective_chat.id
+    text = await asyncio.to_thread(digest.unanswered_text)
+    await _send_md(context.bot, chat_id, text or "✅ Hamma shaxsiy xabarlarga javob berilgan.")
+
+
 async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
     """Har kuni ertalab: tonggi brifing yoqilgan chatlarga xabar yuboradi."""
     for chat_id in memory.settings_where("morning_brief", "1"):
@@ -770,6 +836,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("dayjest", cmd_digest))
+    app.add_handler(CommandHandler("javobsiz", cmd_unanswered))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(
@@ -828,6 +896,8 @@ def main():
     # Eslatmalarni tekshiruvchi fon vazifasi.
     if app.job_queue:
         app.job_queue.run_repeating(check_reminders, interval=30, first=10)
+        app.job_queue.run_repeating(digest_job, interval=600, first=60)
+        app.job_queue.run_repeating(unanswered_job, interval=600, first=90)
         # Kundalik: avto-namoz (00:10) va tonggi brifing (BRIEF_HOUR:00), Toshkent vaqti.
         app.job_queue.run_daily(daily_prayers_job, time=dtime(0, 10, tzinfo=TASHKENT))
         app.job_queue.run_daily(

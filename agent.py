@@ -15,7 +15,7 @@ from groq import Groq, RateLimitError
 import brain
 import memory
 from config import GROQ_API_KEY, MODEL, MAX_TOKENS
-from tools import TOOLS, execute_tool
+from tools import FINAL, TOOLS, execute_tool
 
 log = logging.getLogger("jarvis")
 
@@ -78,7 +78,8 @@ _tools = [
 # Faza 2 faqat o'shalarni yuboradi (token tejash).
 TOOL_CATEGORIES = {
     "web": ["web_search", "get_weather", "get_currency", "read_url"],
-    "tg": ["tg_chats", "tg_read", "tg_send"],
+    "tg": ["tg_chats", "tg_read", "tg_send", "unanswered", "set_unanswered_alerts"],
+    "dayjest": ["digest_add", "digest_remove", "digest_list", "digest_now", "set_digest"],
     "file": ["read_file", "write_file", "list_files", "run_command"],
     "esl": [
         "set_reminder", "list_reminders", "set_prayer_reminders",
@@ -109,6 +110,13 @@ _CLAIM_RE = re.compile(
     r"✅|qo.?shildi|yozildi|o.?chirildi|saqlandi|belgilandi|qo.?yildi",
     re.IGNORECASE,
 )
+
+# Router bularni tool'siz "bilgandek" javob berib, kanal nomlarini o'ylab topardi —
+# kalit so'z bo'lsa routerni chetlab, to'g'ri shu kategoriyalarga.
+_FORCED_ROUTES = [
+    (re.compile(r"dayjest|daydjest|digest|kanal", re.IGNORECASE), ["dayjest", "tg"]),
+    (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
+]
 
 _REMEMBER_RE = re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE)
 
@@ -153,7 +161,9 @@ def build_system(chat_id, user_text, router=False):
     if router:
         base += (
             "\n\nMUHIM: tool kerak bo'lsa boshqa HECH NARSA yozma, faqat <TOOL:kat> yoz. "
-            "kat: web=internet qidiruv/ob-havo/valyuta kursi/havola(URL) o'qish, tg=shaxsiy Telegram suhbat/xabar, "
+            "kat: web=internet qidiruv/ob-havo/valyuta kursi/havola(URL) o'qish, "
+            "tg=shaxsiy Telegram suhbat/xabar/kimga javob bermadim, "
+            "dayjest=Telegram KANALLAR dayjesti (kanal qo'sh/olib tashla/ro'yxat/hozir ko'rsat/vaqti), "
             "file=fayl/kod yozish/buyruq bajarish, "
             "esl=eslatma/namoz/avto-namoz/tonggi brifing/takroriy eslatma, "
             "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
@@ -325,6 +335,10 @@ def _tool_loop(chat_id, history, user_text, cats):
                 except Exception:
                     args = {}
                 result = execute_tool(tc.function.name, args, chat_id)
+                if result.startswith(FINAL):
+                    # Tayyor javob (dayjest, ro'yxat) — model qayta yozsa
+                    # havolalar/raqamlar buziladi, shuning uchun so'zma-so'z.
+                    return result[len(FINAL):]
                 last_result = result
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": result}
@@ -354,6 +368,14 @@ def respond(chat_id, user_text, route_text=None):
             memory.add_message(chat_id, "assistant", final)
             brain.after_turn(chat_id, HISTORY_WINDOW)
             return final
+
+    forced = next((cats for rx, cats in _FORCED_ROUTES if rx.search(route)), None)
+    if forced:
+        final = _tool_loop(chat_id, history, user_text, forced)
+        memory.add_message(chat_id, "user", user_text)
+        memory.add_message(chat_id, "assistant", final)
+        brain.after_turn(chat_id, HISTORY_WINDOW)
+        return final or "(javob bo'sh chiqdi)"
 
     # --- Faza 1: arzon, tool'siz router ---
     p1_messages = [{"role": "system", "content": build_system(chat_id, user_text, router=True)}]

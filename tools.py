@@ -326,7 +326,70 @@ TOOLS = [
             "required": ["chat", "text"],
         },
     },
+    {
+        "name": "unanswered",
+        "description": "Shaxsiy Telegram: kimlar javob kutyapti (javob berilmagan shaxsiy xabarlar)",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "set_unanswered_alerts",
+        "description": "Javobsiz xabarlar haqida kuniga 2 marta (12:00, 19:00) eslatishni yoqadi/o'chiradi",
+        "input_schema": {
+            "type": "object",
+            "properties": {"on": {"type": "boolean"}},
+            "required": ["on"],
+        },
+    },
+    {
+        "name": "digest_add",
+        "description": "Kanalni kundalik dayjestga qo'shadi. channel=kanal nomi yoki @username",
+        "input_schema": {
+            "type": "object",
+            "properties": {"channel": {"type": "string"}},
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "digest_remove",
+        "description": "Kanalni dayjestdan olib tashlaydi",
+        "input_schema": {
+            "type": "object",
+            "properties": {"channel": {"type": "string"}},
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "digest_list",
+        "description": "Dayjestdagi kanallar. all=true — obuna bo'lingan HAMMA kanallar (tanlash uchun)",
+        "input_schema": {
+            "type": "object",
+            "properties": {"all": {"type": ["boolean", "null"]}},
+            "required": [],
+        },
+    },
+    {
+        "name": "digest_now",
+        "description": "Dayjestni hozir tayyorlaydi (oxirgi dayjestdan keyingi postlar)",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "set_digest",
+        "description": "Kundalik dayjestni yoqadi/o'chiradi; hour=soat (0-23, standart 21)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "on": {"type": "boolean"},
+                "hour": {"type": ["number", "null"]},
+            },
+            "required": ["on"],
+        },
+    },
 ]
+
+# Tool natijasi shu belgi bilan boshlansa — agent uni modelga qaytarmay,
+# egasiga so'zma-so'z beradi (dayjest havolalari, ro'yxatlar buzilmasin).
+FINAL = "\x00FINAL\x00"
+DIGEST_HOUR = 21
 
 # Tasdiq kutayotgan xabarlar: sid -> {chat_id, to_id, to_name, text, shown}
 # bot.py bularga inline tugma chiqaradi; tugma bosilganda yuboriladi/bekor bo'ladi.
@@ -861,6 +924,80 @@ def execute_tool(name, tool_input, chat_id=None):
                 return "Bunday raqamli xarajat yo'q."
             _id, amount, cat, note, day = row
             return f"🗑 O'chirildi: {_dm(day)} **{note or cat}** — {_som(amount)}"
+
+        if name == "unanswered":
+            import digest
+            text = digest.unanswered_text()
+            return FINAL + (text or "✅ Hamma shaxsiy xabarlarga javob berilgan.")
+
+        if name == "set_unanswered_alerts":
+            on = bool(tool_input.get("on"))
+            memory.set_setting(chat_id, "unanswered_alerts", "1" if on else "0")
+            return (
+                "📥 Javobsiz xabarlar eslatmasi yoqildi: har kuni 12:00 va 19:00."
+                if on else "Javobsiz xabarlar eslatmasi o'chirildi."
+            )
+
+        if name == "digest_add":
+            import userbot
+            if not userbot._ensure_started():
+                return userbot.NOT_READY
+            ch = userbot.find_channel(tool_input["channel"])
+            if not ch:
+                return (
+                    f"'{tool_input['channel']}' kanali topilmadi (faqat obuna bo'lingan "
+                    "kanallar). digest_list all=true bilan ro'yxatni ko'r."
+                )
+            added = memory.add_digest_channel(chat_id, ch["id"], ch["title"], ch["username"])
+            if memory.get_setting(chat_id, "digest") is None:
+                memory.set_setting(chat_id, "digest", "1")
+                memory.set_setting(chat_id, "digest_hour", str(DIGEST_HOUR))
+            hour = memory.get_setting(chat_id, "digest_hour", str(DIGEST_HOUR))
+            if not added:
+                return f"«{ch['title']}» allaqachon dayjestda."
+            return f"📰 «{ch['title']}» dayjestga qo'shildi. Dayjest har kuni {hour}:00 da keladi."
+
+        if name == "digest_remove":
+            title = memory.remove_digest_channel(chat_id, tool_input["channel"])
+            return f"«{title}» dayjestdan olib tashlandi." if title else "Bunday kanal dayjestda yo'q."
+
+        if name == "digest_list":
+            followed = memory.list_digest_channels(chat_id)
+            ids = {c["channel_id"] for c in followed}
+            if tool_input.get("all"):
+                import userbot
+                chans = userbot.list_channels()
+                if chans is None:
+                    return userbot.NOT_READY
+                if not chans:
+                    return "Hech qanday kanalga obuna emassan."
+                chans.sort(key=lambda c: c["id"] not in ids)  # dayjestdagilar tepada
+                lines = [f"📺 **Obuna bo'lingan kanallar** ({len(chans)}) — ✅ dayjestda"]
+                lines += [
+                    f"{'✅' if c['id'] in ids else '▫️'} {c['title']}"
+                    + (f" (@{c['username']})" if c["username"] else "")
+                    for c in chans
+                ]
+                return FINAL + "\n".join(lines)
+            if not followed:
+                return "Dayjestda kanal yo'q. digest_list all=true — obuna kanallar ro'yxati."
+            on = memory.get_setting(chat_id, "digest", "0") == "1"
+            hour = memory.get_setting(chat_id, "digest_hour", str(DIGEST_HOUR))
+            head = f"📰 **Dayjest** — {'har kuni ' + hour + ':00' if on else 'o‘chiq'}"
+            return FINAL + head + "\n" + "\n".join(f"• {c['title']}" for c in followed)
+
+        if name == "digest_now":
+            import digest
+            return FINAL + digest.build_digest(chat_id)
+
+        if name == "set_digest":
+            on = bool(tool_input.get("on"))
+            memory.set_setting(chat_id, "digest", "1" if on else "0")
+            hour = tool_input.get("hour")
+            if hour is not None:
+                memory.set_setting(chat_id, "digest_hour", str(min(max(int(hour), 0), 23)))
+            h = memory.get_setting(chat_id, "digest_hour", str(DIGEST_HOUR))
+            return f"📰 Kundalik dayjest yoqildi: har kuni {h}:00." if on else "Kundalik dayjest o'chirildi."
 
         return f"Noma'lum tool: {name}"
 

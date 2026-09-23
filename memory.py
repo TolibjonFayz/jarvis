@@ -84,6 +84,16 @@ def init_db():
             if col not in cols:
                 c.execute(f"ALTER TABLE memories ADD COLUMN {col} {ddl}")
         c.execute(
+            """CREATE TABLE IF NOT EXISTS digest_channels (
+                chat_id INTEGER,
+                channel_id INTEGER,
+                title TEXT,
+                username TEXT,
+                last_id INTEGER DEFAULT 0,
+                PRIMARY KEY (chat_id, channel_id)
+            )"""
+        )
+        c.execute(
             """CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id INTEGER,
@@ -444,3 +454,48 @@ def status_counts(chat_id):
                 chat_id, today,
             ),
         }
+
+
+# --- Dayjest kanallari ---
+
+def add_digest_channel(chat_id, channel_id, title, username):
+    """Qo'shadi; allaqachon bo'lsa False."""
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT OR IGNORE INTO digest_channels (chat_id, channel_id, title, username, last_id) "
+            "VALUES (?,?,?,?,0)",
+            (chat_id, channel_id, title, username),
+        )
+    return cur.rowcount > 0
+
+
+def remove_digest_channel(chat_id, query):
+    """Nomi/username qismi bo'yicha o'chiradi; o'chirilgan nomni qaytaradi."""
+    q = query.lower().lstrip("@").strip()
+    for ch in list_digest_channels(chat_id):
+        if q == ch["username"].lower() or q in ch["title"].lower():
+            with _conn() as c:
+                c.execute(
+                    "DELETE FROM digest_channels WHERE chat_id=? AND channel_id=?",
+                    (chat_id, ch["channel_id"]),
+                )
+            return ch["title"]
+    return None
+
+
+def list_digest_channels(chat_id):
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT channel_id, title, username, last_id FROM digest_channels "
+            "WHERE chat_id=? ORDER BY title",
+            (chat_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_digest_last(chat_id, channel_id, last_id):
+    with _conn() as c:
+        c.execute(
+            "UPDATE digest_channels SET last_id=? WHERE chat_id=? AND channel_id=?",
+            (last_id, chat_id, channel_id),
+        )

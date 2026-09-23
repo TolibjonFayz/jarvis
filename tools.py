@@ -300,6 +300,26 @@ TOOLS = [
         },
     },
     {
+        "name": "set_budget",
+        "description": (
+            "OYLIK budjet qo'yadi/o'zgartiradi. category='jami' — umumiy budjet, "
+            "aks holda xarajat kategoriyasi. amount=so'm (0 = o'chirish)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "enum": ["jami"] + EXPENSE_CATEGORIES},
+                "amount": {"type": "number"},
+            },
+            "required": ["category", "amount"],
+        },
+    },
+    {
+        "name": "budget_status",
+        "description": "Shu oylik budjet holati: qancha ishlatildi, qancha qoldi",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
         "name": "tg_chats",
         "description": "Shaxsiy Telegram: oxirgi suhbatlar ro'yxati",
         "input_schema": {
@@ -626,6 +646,102 @@ def expense_report(chat_id, period, category=None):
     return "\n".join(out)
 
 
+# --- Oylik budjet ---
+
+BUDGET_LEVELS = (80, 100)
+
+
+def _month_spent(chat_id, today=None):
+    """Shu oy: {kategoriya: summa, 'jami': umumiy}."""
+    d = today or datetime.date.today()
+    rows = memory.expenses_between(chat_id, d.replace(day=1).isoformat(), d.isoformat())
+    spent = {"jami": 0}
+    for amount, cat, _note, _day in rows:
+        spent[cat] = spent.get(cat, 0) + amount
+        spent["jami"] += amount
+    return spent
+
+
+def _bar(pct, width=10):
+    filled = min(width, round(pct * width / 100))
+    return "▓" * filled + "░" * (width - filled)
+
+
+def _days_left(today=None):
+    d = today or datetime.date.today()
+    nxt = (d.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+    return (nxt - d).days  # bugun ham kiradi
+
+
+def _budget_label(cat):
+    return "💰 Umumiy" if cat == "jami" else _cat(cat)
+
+
+def budget_status(chat_id):
+    budgets = memory.list_budgets(chat_id)
+    if not budgets:
+        return (
+            "Budjet qo'yilmagan. Masalan: \"ovqatga oyiga 2 mln budjet\" yoki "
+            "\"umumiy budjet 8 mln\"."
+        )
+    spent = _month_spent(chat_id)
+    days = _days_left()
+    out = [f"📊 **Budjet** — {datetime.date.today():%m.%Y}, oy oxirigacha {days} kun"]
+    for cat, limit in budgets.items():
+        s = spent.get(cat, 0)
+        pct = round(s * 100 / limit)
+        left = limit - s
+        out.append(f"\n{_budget_label(cat)}: {_som(s)} / {_som(limit)}")
+        out.append(f"{_bar(pct)} {pct}%")
+        if left > 0:
+            out.append(f"Qoldi {_som(left)} · kuniga ~{_som(left / days)}")
+        else:
+            out.append(f"🔴 {_som(-left)} oshib ketdi")
+    return "\n".join(out)
+
+
+def budget_alerts(chat_id):
+    """Xarajatdan keyin: 80%/100% chegarasi YANGI kesib o'tilgan budjetlar.
+    Har chegara oyiga bir marta aytiladi (settings'da eslab qolinadi)."""
+    budgets = memory.list_budgets(chat_id)
+    if not budgets:
+        return []
+    spent = _month_spent(chat_id)
+    month = datetime.date.today().strftime("%Y-%m")
+    alerts = []
+    for cat, limit in budgets.items():
+        pct = spent.get(cat, 0) * 100 / limit
+        level = max((lv for lv in BUDGET_LEVELS if pct >= lv), default=0)
+        key = f"budget_alert_{cat}_{month}"
+        if level <= int(memory.get_setting(chat_id, key, "0") or 0):
+            continue
+        memory.set_setting(chat_id, key, level)
+        left = limit - spent.get(cat, 0)
+        if level >= 100:
+            alerts.append(
+                f"🔴 **{_budget_label(cat)} budjeti tugadi**: {round(pct)}% "
+                f"({_som(-left)} oshdi)" if left < 0 else
+                f"🔴 **{_budget_label(cat)} budjeti tugadi** (100%)"
+            )
+        else:
+            alerts.append(
+                f"🟠 **{_budget_label(cat)} budjetining {round(pct)}% ishlatildi** — "
+                f"qoldi {_som(left)}, {_days_left()} kunga"
+            )
+    return alerts
+
+
+def budget_brief(chat_id):
+    """Brifing uchun bitta qator (umumiy budjet bo'lsa u, aks holda eng to'lgan)."""
+    budgets = memory.list_budgets(chat_id)
+    if not budgets:
+        return ""
+    spent = _month_spent(chat_id)
+    cat = "jami" if "jami" in budgets else max(budgets, key=lambda c: spent.get(c, 0) / budgets[c])
+    pct = round(spent.get(cat, 0) * 100 / budgets[cat])
+    return f"💰 Budjet ({_budget_label(cat).split(' ', 1)[1]}): {pct}% ishlatildi · {_days_left()} kun qoldi"
+
+
 def compose_brief(chat_id, city="Tashkent"):
     """Tonggi brifing: sana + ob-havo + namoz vaqtlari + bugungi eslatmalar + valyuta."""
     today = datetime.date.today()
@@ -665,6 +781,10 @@ def compose_brief(chat_id, city="Tashkent"):
     spent = sum(r[0] for r in memory.expenses_between(chat_id, yday, yday))
     if spent:
         parts.append(f"💸 Kecha sarflading: **{_som(spent)}**")
+
+    line = budget_brief(chat_id)
+    if line:
+        parts.append(line)
 
     return "\n\n".join(parts)
 
@@ -903,7 +1023,24 @@ def execute_tool(name, tool_input, chat_id=None):
                 lines.append(f"✅ **{note or category}**{when} — {_som(amount)} · {_cat(category)}")
             spent = sum(r[0] for r in memory.expenses_between(chat_id, today, today))
             lines.append(f"\nBugun jami: **{_som(spent)}**")
+            alerts = budget_alerts(chat_id)
+            if alerts:
+                lines.append("\n" + "\n".join(alerts))
             return "\n".join(lines)
+
+        if name == "set_budget":
+            category = tool_input.get("category") or "jami"
+            if category != "jami" and category not in EXPENSE_CATEGORIES:
+                return f"Noma'lum kategoriya. Mumkin: jami, {', '.join(EXPENSE_CATEGORIES)}"
+            amount = int(round(float(tool_input.get("amount") or 0)))
+            memory.set_budget(chat_id, category, amount)
+            label = "💰 Umumiy oylik budjet" if category == "jami" else f"{_cat(category)} budjeti"
+            if amount <= 0:
+                return f"🗑 {label} o'chirildi."
+            return f"{label}: **{_som(amount)}** / oy.\n\n" + budget_status(chat_id)
+
+        if name == "budget_status":
+            return budget_status(chat_id)
 
         if name == "expense_report":
             return expense_report(chat_id, tool_input["period"], tool_input.get("category"))

@@ -87,7 +87,10 @@ TOOL_CATEGORIES = {
         "set_recurring_reminder", "list_recurring", "cancel_recurring",
     ],
     "todo": ["add_todo", "list_todos", "complete_todo"],
-    "pul": ["add_expense", "expense_report", "list_expenses", "delete_expense"],
+    "pul": [
+        "add_expense", "expense_report", "list_expenses", "delete_expense",
+        "set_budget", "budget_status",
+    ],
     "xot": ["remember", "recall", "forget"],
 }
 
@@ -100,7 +103,7 @@ _TOOL2CAT = {t: c for c, ts in TOOL_CATEGORIES.items() for t in ts}
 # chetlab to'g'ri "pul" tool'lariga boradi: router tarixdagi "✅ yozildi"
 # javoblariga taqlid qilib, tool chaqirmasdan yolg'on tasdiq berardi.
 _MONEY_RE = re.compile(
-    r"\d[\d\s.,]*\s*(k|ming|mln|million|milion|som|sum)\b|xarajat|sarfla|sarf\b",
+    r"\d[\d\s.,]*\s*(k|ming|mln|million|milion|som|sum)\b|xarajat|sarfla|sarf\b|b[yi]?udjet",
     re.IGNORECASE,
 )
 _APOS_RE = re.compile(r"['‘’ʻʼ`]")
@@ -167,7 +170,7 @@ def build_system(chat_id, user_text, router=False):
             "file=fayl/kod yozish/buyruq bajarish, "
             "esl=eslatma/namoz/avto-namoz/tonggi brifing/takroriy eslatma, "
             "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
-            "pul=xarajat yozish/hisobot/o'chirish (masalan 'taksi 25 ming', 'obed 45k', "
+            "pul=xarajat yozish/hisobot/o'chirish/oylik budjet (masalan 'taksi 25 ming', 'obed 45k', "
             "'bu oy qancha sarfladim'), "
             "xot=FAQAT aniq buyruq: 'eslab qol', 'unut', 'men haqimda nima bilasan'. "
             "O'zi haqida gapirsa (ukam..., men ... yoqtiraman, ... ishlayapman) tool KERAK "
@@ -194,7 +197,7 @@ _NOT_EXPENSE = {
     "type": "function",
     "function": {
         "name": "not_expense",
-        "description": "Xabar xarajat yozish/hisobot/o'chirish haqida EMAS bo'lsa",
+        "description": "Xabar xarajat yoki budjet haqida EMAS bo'lsa",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 }

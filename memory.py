@@ -94,6 +94,14 @@ def init_db():
             )"""
         )
         c.execute(
+            """CREATE TABLE IF NOT EXISTS budgets (
+                chat_id INTEGER,
+                category TEXT,
+                amount INTEGER,
+                PRIMARY KEY (chat_id, category)
+            )"""
+        )
+        c.execute(
             """CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id INTEGER,
@@ -499,3 +507,30 @@ def set_digest_last(chat_id, channel_id, last_id):
             "UPDATE digest_channels SET last_id=? WHERE chat_id=? AND channel_id=?",
             (last_id, chat_id, channel_id),
         )
+
+
+# --- Oylik budjet (category="jami" — umumiy) ---
+
+def set_budget(chat_id, category, amount):
+    with _conn() as c:
+        if amount > 0:
+            c.execute(
+                "INSERT INTO budgets (chat_id, category, amount) VALUES (?,?,?) "
+                "ON CONFLICT(chat_id, category) DO UPDATE SET amount=excluded.amount",
+                (chat_id, category, amount),
+            )
+        else:
+            c.execute(
+                "DELETE FROM budgets WHERE chat_id=? AND category=?", (chat_id, category)
+            )
+
+
+def list_budgets(chat_id):
+    """{category: amount}, 'jami' birinchi."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT category, amount FROM budgets WHERE chat_id=? "
+            "ORDER BY category != 'jami', amount DESC",
+            (chat_id,),
+        ).fetchall()
+    return {r["category"]: r["amount"] for r in rows}

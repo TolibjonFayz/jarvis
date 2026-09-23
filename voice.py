@@ -47,6 +47,7 @@ def speakable(text, limit=700):
     t = _CODE_RE.sub(" kod yozdim, chatda ko'ring. ", text or "")
     t = _INLINE_CODE_RE.sub(" ", t)
     t = _URL_RE.sub(" havola chatda ", t)
+    t = re.sub(r"[*#_~|>•]+", " ", t)  # markdown belgilari ovozda o'qilmasin
     t = re.sub(r"\s+", " ", t).strip()
     if len(t) > limit:
         t = t[:limit].rsplit(" ", 1)[0] + " ... davomi chatda."

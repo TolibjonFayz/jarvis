@@ -364,3 +364,24 @@ def expenses_between(chat_id, start, end):
             (chat_id, start, end),
         ).fetchall()
     return [(r["amount"], r["category"], r["note"], r["day"]) for r in rows]
+
+
+def status_counts(chat_id):
+    """/status uchun bazadagi asosiy sonlar."""
+    now = time.time()
+    today = datetime.date.today().isoformat()
+    with _conn() as c:
+        one = lambda q, *a: c.execute(q, a).fetchone()[0]
+        return {
+            "memories": one("SELECT COUNT(*) FROM memories"),
+            "reminders": one(
+                "SELECT COUNT(*) FROM reminders WHERE chat_id=? AND sent=0 AND due_ts>?",
+                chat_id, now,
+            ),
+            "recurring": one("SELECT COUNT(*) FROM recurring WHERE chat_id=?", chat_id),
+            "todos": one("SELECT COUNT(*) FROM todos WHERE chat_id=? AND done=0", chat_id),
+            "spent_today": one(
+                "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE chat_id=? AND day=?",
+                chat_id, today,
+            ),
+        }

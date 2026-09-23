@@ -7,6 +7,7 @@ Faza 2 (tool bilan) — FAQAT kerakli kategoriya tool'lari yuboriladi
 """
 import re
 import json
+import logging
 import datetime
 
 from groq import Groq, RateLimitError
@@ -14,6 +15,8 @@ from groq import Groq, RateLimitError
 import memory
 from config import GROQ_API_KEY, MODEL, MAX_TOKENS
 from tools import TOOLS, execute_tool
+
+log = logging.getLogger("jarvis")
 
 # max_retries=0: 429 da kutmasdan darhol zaxira modelga o'tamiz.
 client = Groq(api_key=GROQ_API_KEY, max_retries=0) if GROQ_API_KEY else None
@@ -29,13 +32,21 @@ MODEL_CHAIN = [
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
+# /status uchun: bot ishga tushgandan beri qaysi model necha marta chaqirildi.
+STATS = {"calls": {}, "rate_limited": {}, "last_model": None}
+
+
 def _create(**kwargs):
     """Chaqiruv: 429 bo'lsa zanjirdagi keyingi modelga o'tadi."""
     last_err = None
     for m in MODEL_CHAIN:
         try:
-            return client.chat.completions.create(model=m, **kwargs)
+            resp = client.chat.completions.create(model=m, **kwargs)
+            STATS["calls"][m] = STATS["calls"].get(m, 0) + 1
+            STATS["last_model"] = m
+            return resp
         except RateLimitError as e:
+            STATS["rate_limited"][m] = STATS["rate_limited"].get(m, 0) + 1
             last_err = e
             continue
     raise last_err
@@ -115,10 +126,15 @@ def build_system(router=False):
     base = (
         "Sen JARVIS — shaxsiy AI yordamchisan (Iron Man uslubi). O'zbekcha, do'stona, aniq. "
         f"Hozir: {now}. "
-        "Telegram chat: jadval/**/#/--- ISHLATMA, sof matn yoz, qisqa va foydali. "
+        "Telegram chat: qisqa va foydali yoz. Formatlash: **qalin**, `kod`, ```kod bloki```, "
+        "'- ' ro'yxat mumkin; jadval ISHLATMA. Ro'yxatda har bandni qalin qilma. "
         "Egangning shaxsiy Telegramini o'qiy olasan; xabar yuborishni tg_send tayyorlaydi, "
         "foydalanuvchi TUGMA bilan tasdiqlaydi (o'zing tasdiq so'rama). "
         "Fayl o'qish: D:\\Tolibjon ichida; yozish/buyruq: faqat workspace. "
+        "Imkoniyatlaring FAQAT shular (boshqasini va'da qilma): suhbat/kod, fayl, xotira, "
+        "internet qidiruv/havola o'qish, ob-havo, valyuta kursi, eslatma/namoz/tonggi brifing, "
+        "todo, xarajat hisobi, shaxsiy Telegram o'qish/yuborish, ovozli xabar, hujjat xulosasi, "
+        "guruh moderatsiyasi. Rasm ko'ra olmaysan. "
         f"Eslaganlaring: {mem_text}"
     )
     if router:
@@ -159,19 +175,56 @@ _NOT_EXPENSE = {
 }
 
 
+def _salvaged_calls(err):
+    """Groq sxema tekshiruvida rad etgan chaqiruvni xato javobidan tiklaydi.
+
+    Model to'g'ri tool va argumentni tanlagan, faqat bitta maydon mos
+    kelmagan bo'lsa (masalan null) — chaqiruvni tashlab yubormaymiz.
+    """
+    body = getattr(err, "body", None)
+    if not isinstance(body, dict):
+        return []
+    gen = (body.get("error") or {}).get("failed_generation") or ""
+    try:
+        data = json.loads(gen)
+    except Exception:
+        return []
+    items = data if isinstance(data, list) else [data]
+    calls = []
+    for it in items:
+        if not isinstance(it, dict) or not it.get("name"):
+            continue
+        args = it.get("arguments") or it.get("parameters") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                args = {}
+        calls.append((it["name"], args if isinstance(args, dict) else {}))
+    return calls
+
+
 def _money_flow(chat_id, user_text):
     """Pul xabari: model FAQAT tool tanlaydi, javob = tool natijasi so'zma-so'z.
 
     Model natijani o'z so'zi bilan qayta aytganda summalarni buzardi
-    (1 390 000 -> "1 365 000"), pulda bu yaramaydi. Tarix ham berilmaydi —
-    unda eski "✅" javoblar bor, model ularga taqlid qiladi.
+    (1 390 000 -> "1 365 000"), pulda bu yaramaydi. Bot javoblari berilmaydi —
+    unda eski "✅" javoblar bor, model ularga taqlid qiladi; faqat oldingi
+    2 ta SAVOL kontekst uchun beriladi ("batafsil chiqar" kabi davomlar uchun).
     Xabar aslida pul haqida bo'lmasa — None (oddiy yo'lga qaytadi).
     """
     now = datetime.datetime.now()
+    prev = [
+        m["content"][:200]
+        for m in memory.get_history(chat_id, limit=6)
+        if m["role"] == "user"
+    ][-2:]
     system = (
         f"Bugun {now:%Y-%m-%d} ({now:%A}). Foydalanuvchi xabarini xarajat "
         "tool'iga aylantir. Summalar so'mda."
     )
+    if prev:
+        system += " Oldingi savollari (kontekst): " + " | ".join(prev)
     try:
         resp = _create(
             messages=[
@@ -182,18 +235,24 @@ def _money_flow(chat_id, user_text):
             tool_choice="required",
             max_tokens=min(768, MAX_TOKENS),
         )
-    except Exception:
-        return None
-    calls = resp.choices[0].message.tool_calls or []
-    if not calls or any(tc.function.name == "not_expense" for tc in calls):
+        calls = []
+        for tc in resp.choices[0].message.tool_calls or []:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except Exception:
+                args = {}
+            calls.append((tc.function.name, args))
+    except Exception as e:
+        calls = _salvaged_calls(e)
+        if not calls:
+            log.warning("Pul oqimi ishlamadi, oddiy yo'lga o'tildi: %s", str(e)[:200])
+            return None
+    if not calls or any(name == "not_expense" for name, _ in calls):
         return None
     results = []
-    for tc in calls:
-        try:
-            args = json.loads(tc.function.arguments or "{}")
-        except Exception:
-            args = {}
-        results.append(execute_tool(tc.function.name, args, chat_id))
+    for name, args in calls:
+        args = {k: v for k, v in args.items() if v is not None}
+        results.append(execute_tool(name, args, chat_id))
     return "\n\n".join(results)
 
 

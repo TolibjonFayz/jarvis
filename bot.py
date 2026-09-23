@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 import logging
 from datetime import time as dtime, timezone, timedelta
@@ -10,7 +11,7 @@ from telegram import (
     ChatPermissions,
 )
 from telegram.constants import ChatAction, ParseMode
-from telegram.error import NetworkError, TimedOut
+from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -21,6 +22,7 @@ from telegram.ext import (
 )
 
 import config
+import fmt
 import memory
 import agent
 import moderation
@@ -29,6 +31,8 @@ import security
 import tools as jtools
 import userbot
 import voice
+
+STARTED_AT = time.time()
 
 # Kutilayotgan CAPTCHA'lar: (chat_id, user_id) -> {msg_id, job}
 PENDING_CAPTCHAS = {}
@@ -51,14 +55,60 @@ def _authorized(update: Update) -> bool:
     return bool(update.effective_user and update.effective_user.id == config.OWNER_ID)
 
 
+async def _send_md(bot, chat_id, text, reply_to=None):
+    """Model javobini (Markdown) Telegram HTML qilib yuboradi, uzunini bo'laklaydi.
+    HTML'ni Telegram rad etsa — belgilarsiz oddiy matn."""
+    for chunk in fmt.split(text) or ["(javob bo'sh chiqdi)"]:
+        try:
+            await bot.send_message(
+                chat_id, fmt.to_html(chunk), parse_mode=ParseMode.HTML,
+                reply_to_message_id=reply_to, disable_web_page_preview=True,
+            )
+        except BadRequest:
+            await bot.send_message(chat_id, fmt.to_plain(chunk), reply_to_message_id=reply_to)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         return
     await update.message.reply_text(
         "Salom bro! Men JARVIS — shaxsiy AI yordamching.\n"
         "Kod yozaman, fikr aytaman, fayllar bilan ishlayman.\n"
-        "Suhbatni tozalash: /reset"
+        "Holat: /status · Suhbatni tozalash: /reset"
     )
+
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        return
+    chat_id = update.effective_chat.id
+    up = int(time.time() - STARTED_AT)
+    d, rem = divmod(up, 86400)
+    h, m = divmod(rem // 60, 60)
+    uptime = (f"{d} kun " if d else "") + f"{h} soat {m} daqiqa"
+
+    lines = ["🤖 **JARVIS holati**", f"⏱ Ishlayapti: {uptime}"]
+    calls = agent.STATS["calls"]
+    if calls:
+        lines.append("\n**Groq chaqiruvlari** (ishga tushgandan beri)")
+        for mdl in agent.MODEL_CHAIN:
+            n = calls.get(mdl, 0)
+            rl = agent.STATS["rate_limited"].get(mdl, 0)
+            extra = f" · limitga urildi {rl} marta" if rl else ""
+            lines.append(f"• `{mdl}` — {n}{extra}")
+    else:
+        lines.append("Groq hali chaqirilmadi.")
+
+    c = await asyncio.to_thread(memory.status_counts, chat_id)
+    lines += [
+        "\n**Ma'lumotlar**",
+        f"🧠 Xotirada: {c['memories']} ta fakt",
+        f"⏰ Kutilayotgan eslatma: {c['reminders']} · takroriy: {c['recurring']}",
+        f"✅ Ochiq vazifa: {c['todos']}",
+        f"💸 Bugun sarflandi: {jtools._som(c['spent_today'])}",
+        f"👤 Userbot: {'ulangan' if config.TG_API_ID else 'sozlanmagan'}",
+    ]
+    await _send_md(context.bot, chat_id, "\n".join(lines))
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,9 +142,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             reply = f"Xato yuz berdi: {e}"
 
-    # Telegram bitta xabarda 4096 belgigacha ruxsat beradi — uzun bo'lsa bo'laklaymiz.
-    for i in range(0, len(reply), 4000):
-        await update.message.reply_text(reply[i : i + 4000])
+    await _send_md(context.bot, chat_id, reply)
 
     await _show_pending_sends(update, chat_id)
 
@@ -165,8 +213,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = "⏳ Groq chegarasi urildi. ~1 daqiqa kutib qayta yuboring."
         else:
             reply = f"Xato yuz berdi: {e}"
-    for i in range(0, len(reply), 4000):
-        await msg.reply_text(reply[i : i + 4000])
+    await _send_md(context.bot, chat_id, reply)
 
 
 async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -213,8 +260,7 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 reply = f"Xato yuz berdi: {e}"
 
-        for i in range(0, len(reply), 4000):
-            await msg.reply_text(reply[i : i + 4000])
+        await _send_md(context.bot, chat_id, reply)
         await _show_pending_sends(update, chat_id)
 
         # Javobni ovoz bilan ham yuboramiz (kod/link olib tashlangan qismini).
@@ -636,7 +682,7 @@ async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
         city = memory.get_setting(chat_id, "brief_city", "Tashkent")
         try:
             text = await asyncio.to_thread(jtools.compose_brief, chat_id, city)
-            await context.bot.send_message(chat_id, text)
+            await _send_md(context.bot, chat_id, text)
             log.info("Tonggi brifing yuborildi [%s]", chat_id)
         except Exception:
             log.warning("Tonggi brifing xatosi [%s]", chat_id)
@@ -679,6 +725,7 @@ def main():
     app.add_error_handler(on_error)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("status", status))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> JARVIS agent; guruhlar -> faqat moderatsiya.
     app.add_handler(

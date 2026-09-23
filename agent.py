@@ -92,6 +92,7 @@ TOOL_CATEGORIES = {
         "set_budget", "budget_status",
     ],
     "xot": ["remember", "recall", "forget"],
+    "loyiha": ["projects_list", "project_status", "project_changes"],
 }
 
 _TOOL_RE = re.compile(r"<\s*TOOL\s*:?\s*([a-z, ]*)>?", re.IGNORECASE)
@@ -119,6 +120,7 @@ _CLAIM_RE = re.compile(
 _FORCED_ROUTES = [
     (re.compile(r"dayjest|daydjest|digest|kanal", re.IGNORECASE), ["dayjest", "tg"]),
     (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
+    (re.compile(r"loyiha|\brepo|commit|\bgit\b|branch|nima qildim", re.IGNORECASE), ["loyiha"]),
 ]
 
 _REMEMBER_RE = re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE)
@@ -172,6 +174,8 @@ def build_system(chat_id, user_text, router=False):
             "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
             "pul=xarajat yozish/hisobot/o'chirish/oylik budjet (masalan 'taksi 25 ming', 'obed 45k', "
             "'bu oy qancha sarfladim'), "
+            "loyiha=egangning KOD loyihalari/git (ERP, Climavent, bilim manba, fit-uz, "
+            "shelf-sort...): holati, 'ERPda bugun nima o'zgardi', 'bugun nima qildim', "
             "xot=FAQAT aniq buyruq: 'eslab qol', 'unut', 'men haqimda nima bilasan'. "
             "O'zi haqida gapirsa (ukam..., men ... yoqtiraman, ... ishlayapman) tool KERAK "
             "EMAS — oddiy javob ber, fakt fonda o'zi saqlanadi. "
@@ -373,6 +377,10 @@ def respond(chat_id, user_text, route_text=None):
             return final
 
     forced = next((cats for rx, cats in _FORCED_ROUTES if rx.search(route)), None)
+    if not forced:
+        import projects
+        if projects.mentioned(route):
+            forced = ["loyiha"]
     if forced:
         final = _tool_loop(chat_id, history, user_text, forced)
         memory.add_message(chat_id, "user", user_text)

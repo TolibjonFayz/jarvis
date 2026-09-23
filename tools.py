@@ -315,6 +315,35 @@ TOOLS = [
         },
     },
     {
+        "name": "projects_list",
+        "description": "Kod loyihalari (git repolar) ro'yxati: oxirgi faollik, branch, commit qilinmaganlar",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "project_status",
+        "description": "Bitta loyiha holati: branch, push qilinmagan, commit qilinmagan fayllar, oxirgi commitlar",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "project_changes",
+        "description": (
+            "Davrdagi o'zgarishlar (commitlar). name=loyiha (ERP, bilim manba...), "
+            "bo'sh = hamma loyihalar ('bugun nima qildim')"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": ["string", "null"]},
+                "period": {"type": "string", "enum": ["bugun", "kecha", "hafta", "oy"]},
+            },
+            "required": ["period"],
+        },
+    },
+    {
         "name": "budget_status",
         "description": "Shu oylik budjet holati: qancha ishlatildi, qancha qoldi",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -786,6 +815,14 @@ def compose_brief(chat_id, city="Tashkent"):
     if line:
         parts.append(line)
 
+    try:
+        import projects
+        line = projects.brief_line()
+        if line:
+            parts.append(line)
+    except Exception:
+        pass
+
     return "\n\n".join(parts)
 
 
@@ -1041,6 +1078,20 @@ def execute_tool(name, tool_input, chat_id=None):
 
         if name == "budget_status":
             return budget_status(chat_id)
+
+        if name == "projects_list":
+            import projects
+            return FINAL + projects.list_text()
+
+        if name == "project_status":
+            import projects
+            return FINAL + projects.status_text(tool_input["name"])
+
+        if name == "project_changes":
+            import projects
+            return FINAL + projects.changes_text(
+                tool_input.get("name") or None, tool_input.get("period") or "bugun"
+            )
 
         if name == "expense_report":
             return expense_report(chat_id, tool_input["period"], tool_input.get("category"))

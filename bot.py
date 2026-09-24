@@ -69,6 +69,24 @@ async def _send_md(bot, chat_id, text, reply_to=None):
             await bot.send_message(chat_id, fmt.to_plain(chunk), reply_to_message_id=reply_to)
 
 
+async def _respond(context, chat_id, *args):
+    """agent.respond ni fonda ishlatadi va shu vaqt davomida "yozmoqda..." ni ushlab
+    turadi (Telegram uni ~5s da o'chiradi; limitni kutish 20s gacha cho'zilishi mumkin)."""
+    async def keep_typing():
+        while True:
+            try:
+                await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            except Exception:
+                pass
+            await asyncio.sleep(4)
+
+    typing = asyncio.create_task(keep_typing())
+    try:
+        return await asyncio.to_thread(agent.respond, chat_id, *args)
+    finally:
+        typing.cancel()
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         return
@@ -132,15 +150,18 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # agent.respond sinxron (tarmoq chaqiruvi) — event loop'ni bloklamaslik uchun
         # alohida oqimda ishga tushiramiz.
-        reply = await asyncio.to_thread(agent.respond, chat_id, text)
+        reply = await _respond(context, chat_id, text)
     except Exception as e:
         log.exception("Javob berishda xato")
         s = str(e).lower()
         if "429" in s or "rate_limit" in s or "too many requests" in s:
-            reply = (
-                "⏳ Groq tekin chegarasi (daqiqasiga token limiti) urildi. "
-                "Iltimos ~1 daqiqa kutib, qayta yozing bro."
-            )
+            if "per day" in s:
+                reply = (
+                    "⏳ Groq'ning bugungi tekin limiti tugadi (hamma modellarda). "
+                    "Ertalab (Toshkent ~05:00) tiklanadi."
+                )
+            else:
+                reply = "⏳ Hamma modellar band edi (daqiqalik limit). ~1 daqiqadan keyin qayta yoz, bro."
         else:
             reply = f"Xato yuz berdi: {e}"
 
@@ -213,7 +234,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"nuqtalarini o'zbekcha, aniq ayt:\n\n{text[:5000]}"
     )
     try:
-        reply = await asyncio.to_thread(agent.respond, chat_id, prompt)
+        reply = await _respond(context, chat_id, prompt)
     except Exception as e:
         s = str(e).lower()
         if "429" in s or "rate_limit" in s or "too many requests" in s:
@@ -259,7 +280,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         + (note or "Rasm haqida qisqacha ayt.")
     )
     try:
-        reply = await asyncio.to_thread(agent.respond, chat_id, prompt, note)
+        reply = await _respond(context, chat_id, prompt, note)
     except Exception as e:
         log.exception("Javob berishda xato (rasm)")
         reply = f"Rasmdagi narsa:\n\n{desc}\n\n(izoh yozishda xato: {e})"
@@ -301,7 +322,7 @@ async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
         try:
-            reply = await asyncio.to_thread(agent.respond, chat_id, text)
+            reply = await _respond(context, chat_id, text)
         except Exception as e:
             log.exception("Javob berishda xato (ovoz)")
             s = str(e).lower()

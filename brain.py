@@ -25,7 +25,7 @@ log = logging.getLogger("jarvis")
 BRAIN_MODELS = ["qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
 EXTRACT_EVERY = 3        # nechta yangi foydalanuvchi xabaridan keyin ajratish
 SUMMARIZE_MIN = 8        # oynadan chiqqan nechta xabar yig'ilsa xulosa
-SUMMARY_MAX_CHARS = 600
+SUMMARY_MAX_CHARS = 400
 FACT_MAX_CHARS = 120
 CATEGORIES = ["shaxsiy", "oila", "ish", "loyiha", "afzallik", "odamlar", "reja", "boshqa"]
 
@@ -196,9 +196,11 @@ def summarize(chat_id, window):
     old = msgs[:-window] if window else msgs
     if len(old) < SUMMARIZE_MIN:
         return False
-    old = old[:40]
+    # Kichik bo'laklar: 40x300 belgi bitta so'rovda ~6000 token bo'lib, qwen'ning
+    # daqiqalik limitini yeb qo'yardi (u zaxira model ham).
+    old = old[:16]
     dialog = "\n".join(
-        f"{'Ega' if m['role'] == 'user' else 'FRIDAY'}: {m['content'][:300]}" for m in old
+        f"{'Ega' if m['role'] == 'user' else 'FRIDAY'}: {m['content'][:200]}" for m in old
     )
     prompt = f"Oldingi xulosa:\n{summary(chat_id) or '(yo`q)'}\n\nYangi xabarlar:\n{dialog}"
     text = _chat(_SUMMARY_SYSTEM, prompt, max_tokens=500)

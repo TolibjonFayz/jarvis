@@ -9,6 +9,7 @@ import re
 import json
 import logging
 import datetime
+import time
 
 from groq import Groq, RateLimitError
 
@@ -37,19 +38,51 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 STATS = {"calls": {}, "rate_limited": {}, "last_model": None}
 
 
+_RETRY_RE = re.compile(r"try again in (?:(\d+)m)?([\d.]+)s")
+MAX_WAIT_SEC = 20  # daqiqalik limit tiklanishini shuncha kutamiz; kunlik limitni kutmaymiz
+# Asosiy model uchun: shuncha kutish zaxiraga o'tishdan afzal. Sinovda zaxira modellar
+# "ertaga 7 da uyg'ot" ga ortiqcha "har shanba" takroriy eslatma qo'ydi, salomga
+# ```markdown``` qaytardi — biroz kutib kuchli model bilan to'g'ri javob yaxshiroq.
+PRIMARY_WAIT_SEC = 20
+
+
+def _retry_after(err):
+    """429 xabaridagi "try again in 1m2.5s" -> soniya (topilmasa None)."""
+    m = _RETRY_RE.search(str(err))
+    return int(m.group(1) or 0) * 60 + float(m.group(2)) if m else None
+
+
 def _create(**kwargs):
-    """Chaqiruv: 429 bo'lsa zanjirdagi keyingi modelga o'tadi."""
+    """Chaqiruv: 429 bo'lsa zanjirdagi keyingi modelga o'tadi. Hammasi daqiqalik
+    limitga urilgan bo'lsa — bir necha soniya kutib bir marta qayta (avval darrov
+    "limit tugadi" derdi, holbuki limit 5-10 soniyada tiklanadi)."""
     last_err = None
-    for m in MODEL_CHAIN:
-        try:
-            resp = client.chat.completions.create(model=m, **kwargs)
-            STATS["calls"][m] = STATS["calls"].get(m, 0) + 1
-            STATS["last_model"] = m
-            return resp
-        except RateLimitError as e:
-            STATS["rate_limited"][m] = STATS["rate_limited"].get(m, 0) + 1
-            last_err = e
-            continue
+    for attempt in range(2):
+        waits = []
+        for m in MODEL_CHAIN:
+            for _try in range(2):
+                try:
+                    resp = client.chat.completions.create(model=m, **kwargs)
+                    STATS["calls"][m] = STATS["calls"].get(m, 0) + 1
+                    STATS["last_model"] = m
+                    return resp
+                except RateLimitError as e:
+                    STATS["rate_limited"][m] = STATS["rate_limited"].get(m, 0) + 1
+                    last_err = e
+                    w = _retry_after(e)
+                    # Asosiy (eng kuchli) model bir necha soniyaga band bo'lsa — kutamiz:
+                    # zaxira modellar kuchsizroq, tool'larni chalkashtirib, to'qib yuborardi.
+                    if m == MODEL_CHAIN[0] and _try == 0 and w is not None and w <= PRIMARY_WAIT_SEC:
+                        time.sleep(w + 0.3)
+                        continue
+                    if w is not None:
+                        waits.append(w)
+                    break
+        wait = min(waits) if waits else None
+        if attempt or wait is None or wait > MAX_WAIT_SEC:
+            break
+        log.info("Hamma model daqiqalik limitda — %.1fs kutib qayta urinaman", wait)
+        time.sleep(wait + 0.5)
     raise last_err
 
 
@@ -127,7 +160,7 @@ _FORCED_ROUTES = [
     (re.compile(r"\bpin\b|pin qil|chiqib ket|dan chiq|tark et", re.IGNORECASE), ["tg"]),
     (re.compile(r"dayjest|daydjest|digest|kanal", re.IGNORECASE), ["dayjest", "tg"]),
     # "todolarni o'chir" — egasi takroriy eslatmalarni ham "todo" deydi: ikkalasi birga.
-    (re.compile(r"eslatma|todo|to-do|vazifa", re.IGNORECASE), ["esl", "todo"]),
+    (re.compile(r"eslat|uyg.?ot|todo|to-do|vazifa", re.IGNORECASE), ["esl", "todo"]),
     (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
     (re.compile(r"loyiha|\brepo|commit|\bgit\b|branch|nima qildim", re.IGNORECASE), ["loyiha"]),
     (re.compile(r"kalendar|calendar|taqvim|uchrashuv|meeting|tadbir|\bmajlis", re.IGNORECASE), ["kal"]),
@@ -176,57 +209,42 @@ def build_system(chat_id, user_text, router=False):
     dt = datetime.datetime.now()
     now = f"{dt:%Y-%m-%d %H:%M}, {_WEEKDAYS[dt.weekday()]}"
     base = (
-        "Sen FRIDAY — shaxsiy AI yordamchisan (Iron Man'dagi F.R.I.D.A.Y. uslubi: xotirjam, "
-        "aniq, ozgina hazilkash). HAR DOIM o'zbek tilida javob ber (egang boshqa til so'ramasa), "
-        "do'stona. Ismingni so'rashsa — FRIDAY. "
+        "Sen FRIDAY — egangning shaxsiy AI yordamchisi (F.R.I.D.A.Y. uslubi: xotirjam, aniq, "
+        "ozgina hazil). Doim o'zbekcha, qisqa va foydali. "
         f"Hozir: {now}. "
-        "Telegram chat: qisqa va foydali yoz. Formatlash: **qalin**, `kod`, ```kod bloki```, "
-        "'- ' ro'yxat mumkin; jadval ISHLATMA. Qalinni kam ishlat (sarlavha yoki eng muhim so'z). "
-        "Egangning shaxsiy Telegramini o'qiy olasan; xabar yuborishni tg_send tayyorlaydi, "
-        "foydalanuvchi TUGMA bilan tasdiqlaydi (o'zing tasdiq so'rama). "
-        "Fayl o'qish: D:\\Tolibjon ichida; yozish/buyruq: faqat workspace. "
-        "Imkoniyatlaring FAQAT shular (boshqasini va'da qilma): suhbat/kod, fayl, xotira, "
-        "internet qidiruv/havola o'qish, ob-havo, valyuta kursi, eslatma/namoz/tonggi brifing, "
-        "todo, xarajat hisobi, shaxsiy Telegram o'qish/yuborish, ovozli xabar, hujjat xulosasi, "
-        "guruh moderatsiyasi, rasm ko'rish (rasm yuborilsa tavsifi [qavs] ichida keladi). "
-        f"Foydalanuvchi (egang) haqida bilganlaring: {mem_text}. "
-        "Sen suhbatdan faktlarni FONDA O'ZING eslab qolasan — 'eslab qol deb ayting' "
-        "deb SO'RAMA. Bilmagan narsangni o'ylab topma. "
+        "Format: `kod`, ```blok```, '- ' ro'yxat, **qalin** kam; jadval yo'q. "
+        "Bilmaganingni to'qima; tool'siz 'bajardim' dema. Faktlarni fonda o'zing eslab "
+        "qolasan — 'eslab qol deng' deb so'rama. "
+        f"Egang haqida: {mem_text}. "
     )
     if summ:
-        base += f"Oldingi suhbat xulosasi: {summ} "
+        base += f"Oldingi suhbat: {summ} "
     if router:
+        # Token tejash: har xabarda yuboriladi — ixcham yozilgan (avval ~1050 token edi).
         base += (
-            "\n\nMUHIM: tool kerak bo'lsa boshqa HECH NARSA yozma, faqat <TOOL:kat> yoz. "
-            "kat: web=internet qidiruv/ob-havo/valyuta kursi/havola(URL) o'qish, "
-            "tg=shaxsiy Telegram suhbat/xabar/kimga javob bermadim/kanal-guruhdan chiqish/pin, "
-            "dayjest=Telegram KANALLAR dayjesti (kanal qo'sh/olib tashla/ro'yxat/hozir ko'rsat/vaqti), "
-            "file=fayl/kod yozish/buyruq bajarish, "
-            "esl=eslatma/namoz/avto-namoz/tonggi brifing/takroriy eslatma, "
-            "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
-            "pul=xarajat yozish/hisobot/o'chirish/oylik budjet (masalan 'taksi 25 ming', 'obed 45k', "
-            "'bu oy qancha sarfladim'), "
-            "kal=Google Calendar va kun tartibi (tadbir ko'rish/qo'shish/o'chirish, 'bugun nima bor'), "
-            "loyiha=egangning KOD loyihalari/git (ERP, Climavent, bilim manba, fit-uz, "
-            "shelf-sort...): holati, 'ERPda bugun nima o'zgardi', 'bugun nima qildim', "
-            "xot=FAQAT aniq buyruq: 'eslab qol', 'unut', 'men haqimda nima bilasan'. "
-            "O'zi haqida gapirsa (ukam..., men ... yoqtiraman, ... ishlayapman) tool KERAK "
-            "EMAS — oddiy javob ber, fakt fonda o'zi saqlanadi. "
-            "Bir nechtasi kerak bo'lsa vergul bilan: <TOOL:web,esl>. "
-            "Kurs, ob-havo, narx, yangilik, sana-vaqtga bog'liq DOLZARB raqamlarni "
-            "HECH QACHON o'zingdan aytma — bilmaysan, <TOOL:web> yoz. "
-            "Aks holda (suhbat, savol, maslahat) to'g'ridan-to'g'ri QISQA javob ber."
+            "\n\nTool kerak bo'lsa FAQAT <TOOL:kat> yoz (bir nechta: <TOOL:web,esl>). kat: "
+            "web=qidiruv/ob-havo/kurs/URL; tg=Telegram chat/xabar/pin/chiqish/javobsizlar; "
+            "dayjest=kanal dayjesti; file=fayl/kod bajarish; esl=eslatma/namoz/brifing; "
+            "todo=vazifalar; pul=xarajat/budjet; kal=kalendar/kun tartibi; "
+            "loyiha=git loyihalar (ERP, Climavent, bilim manba...); "
+            "xot=faqat 'eslab qol/unut/men haqimda nima bilasan'. "
+            "Dolzarb raqamni (kurs, ob-havo, narx, yangilik) o'zingdan aytma — <TOOL:web>. "
+            "Imkoniyatlaring faqat: suhbat/kod, fayl, xotira, internet, ob-havo, kurs, eslatma, "
+            "namoz, brifing, todo, xarajat/budjet, kalendar, Telegram, dayjest, loyihalar, ovoz, "
+            "rasm, hujjat, guruh moderatsiyasi. Aks holda to'g'ridan-to'g'ri qisqa javob ber."
         )
     return base
 
 
 def _subset_tools(cats):
-    """Kategoriyalarga mos tool'larni qaytaradi; noaniq bo'lsa hammasini."""
+    """Kategoriyalarga mos tool'lar; noaniq bo'lsa — faqat web."""
     allowed = set()
     for c in cats:
         allowed.update(TOOL_CATEGORIES.get(c, []))
     if not allowed:
-        return _tools
+        # Noma'lum kategoriya: hamma 48 tool (~4800 token) daqiqalik limitni bir
+        # so'rovda yeb qo'yardi — eng umumiy kichik to'plam bilan kifoyalanamiz.
+        allowed = set(TOOL_CATEGORIES["web"])
     return [t for t in _tools if t["function"]["name"] in allowed]
 
 
@@ -321,8 +339,12 @@ def _money_flow(chat_id, user_text):
     return "\n\n".join(results)
 
 
-def _tool_loop(chat_id, history, user_text, cats):
-    """Faza 2: tool aylanmasi — faqat kerakli kategoriya tool'lari bilan."""
+def _tool_loop(chat_id, history, user_text, cats, require=False):
+    """Faza 2: tool aylanmasi — faqat kerakli kategoriya tool'lari bilan.
+
+    require=True (majburiy yo'nalish): 1-qadamda tool chaqirish SHART —
+    kuchsizroq zaxira modellar "eslatmalarim" ga tool'siz ro'yxat to'qib berardi.
+    """
     tools = _subset_tools(cats)
     if not _REMEMBER_RE.search(_APOS_RE.sub("", user_text)):
         # Oddiy "ukam Aziz..." gapida model remember'ni o'zi chaqirib, faktni
@@ -343,7 +365,10 @@ def _tool_loop(chat_id, history, user_text, cats):
     for step in range(15):
         # calls: [(id, name, arguments_json)]; content: modelning matni
         try:
-            resp = _create(messages=messages, max_tokens=MAX_TOKENS, **tool_kw)
+            kw = dict(tool_kw)
+            if require and step == 0 and tools:
+                kw["tool_choice"] = "required"
+            resp = _create(messages=messages, max_tokens=MAX_TOKENS, **kw)
             msg = resp.choices[0].message
             content = msg.content
             calls = [(tc.id, tc.function.name, tc.function.arguments) for tc in msg.tool_calls or []]
@@ -458,7 +483,7 @@ def respond(chat_id, user_text, route_text=None):
         if projects.mentioned(route):
             forced = ["loyiha"]
     if forced:
-        final = _tool_loop(chat_id, history, user_text, forced)
+        final = _tool_loop(chat_id, history, user_text, forced, require=True)
         memory.add_message(chat_id, "user", user_text)
         memory.add_message(chat_id, "assistant", final)
         brain.after_turn(chat_id, HISTORY_WINDOW)

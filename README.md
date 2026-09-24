@@ -31,7 +31,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 🎤 Ovoz | Ovozli xabarni tushunadi, javobni ovoz bilan ham beradi |
 | 🛡 Guruh moderatsiyasi | So'kinish, 18+ rasm/video, spamer, CAPTCHA, xavfli linklar |
 
-**Buyruqlar:** `/start` · `/status` (holat, model statistikasi) · `/dayjest` · `/javobsiz` · `/reset`
+**Buyruqlar:** `/start` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/zaxira` · `/reset`
 
 ---
 
@@ -127,6 +127,17 @@ dagi `TOOL_CATEGORIES` ga kategoriya → router matniga bir-ikki so'z.
 
 ---
 
+## Testlar
+
+- **Offline** (Groq'siz, token sarflamaydi, ~6 soniya): `pip install -r requirements-dev.txt`
+  va `python -m pytest`. Har o'zgarishdan keyin ishga tushir. Bugungacha topilgan har bir
+  xato (yolg'on «o'chirildi», «juma» sanasi, ro'yxat ko'rsatib o'chirmay qolish, buzuq tool
+  chaqiruvi, null maydon...) uchun alohida test bor.
+- **Jonli sinov** (haqiqiy model, ~20-40K token): `python evals/live_eval.py` — 10 ta tipik
+  so'rov, to'g'ri tool chaqirildimi va keraksiz amal yo'qmi. Faqat katta o'zgarishdan keyin.
+
+---
+
 ## Guruh moderatori 🛡
 
 Botni guruhga qo'shib **admin** qil (xabar o'chirish, ban, cheklash huquqlari bilan).
@@ -148,6 +159,9 @@ Botni guruhga qo'shib **admin** qil (xabar o'chirish, ban, cheklash huquqlari bi
 
 - `data/` papkasi git'ga tushmaydi: `userbot.session` (akkauntingga to'liq kirish!),
   Google token, baza. Hech kimga berma.
+- **Zaxira:** har kuni `data/backups/` (7 kun), har yakshanba 20:00 dan keyin baza FRIDAY
+  chatiga fayl bo'lib keladi (`/zaxira` — hozir). Kalitlar (session, token) kirmaydi.
+  Tiklash: botni to'xtat → zip ichidagi `jarvis.db` ni `data/` ga qo'y → yoq.
 - `run_command` haqiqiy buyruq bajaradi (faqat `workspace/` ichida, faqat egasi uchun).
 - Userbot sessiyasini bir vaqtda ikki joyda ishlatma — Telegram sessiyani bekor qilishi mumkin.
 - Telegram ommaviy avtomatik xabarlarni ban qiladi — userbot faqat yakka xabar uchun.

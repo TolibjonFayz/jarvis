@@ -72,14 +72,14 @@ _DAYS = ["Du", "Se", "Ch", "Pa", "Ju", "Sh", "Ya"]
 _WEEKDAYS = ["dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba", "yakshanba"]
 
 
-def resolve_date(text):
+def resolve_date(text, today=None):
     """'2026-09-25' | 'bugun' | 'ertaga' | 'indinga' | 'juma' | 'kelasi juma' -> date.
 
     Model "juma kuni" ni sanaga o'zi aylantirganda adashardi (chorshanbadan
     jumani 27.09 — yakshanba deb yozdi), shuning uchun nisbiy sanani kod hisoblaydi.
     """
     s = (text or "").strip().lower().replace("‘", "'").replace("’", "'")
-    today = datetime.datetime.now(_TZINFO).date()
+    today = today or datetime.datetime.now(_TZINFO).date()
     try:
         return datetime.date.fromisoformat(s[:10])
     except ValueError:

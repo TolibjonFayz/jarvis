@@ -192,6 +192,16 @@ _MUTATE_INTENT_RE = re.compile(
 _REMEMBER_RE = re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE)
 
 
+def forced_categories(text):
+    """Routerni chetlab o'tadigan kategoriyalar (yoki None — router hal qiladi)."""
+    forced = next((cats for rx, cats in _FORCED_ROUTES if rx.search(text)), None)
+    if not forced:
+        import projects
+        if projects.mentioned(text):
+            forced = ["loyiha"]
+    return forced
+
+
 def _trim_history(msgs, each=500):
     """Eski xabarlarni qisqartiradi — to'liq matn tarixda shart emas."""
     return [
@@ -482,11 +492,7 @@ def respond(chat_id, user_text, route_text=None):
             brain.after_turn(chat_id, HISTORY_WINDOW)
             return final
 
-    forced = next((cats for rx, cats in _FORCED_ROUTES if rx.search(route)), None)
-    if not forced:
-        import projects
-        if projects.mentioned(route):
-            forced = ["loyiha"]
+    forced = forced_categories(route)
     if forced:
         final = _tool_loop(chat_id, history, user_text, forced, require=True)
         memory.add_message(chat_id, "user", user_text)

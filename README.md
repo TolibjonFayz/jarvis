@@ -18,7 +18,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 🧠 Aqlli xotira | O'zi eslab qoladi. «men haqimda nima bilasan?», «…ni unut» |
 | 💸 Xarajatlar | «taksi 25 ming, obed 45k», «bu oy qancha sarfladim?» |
 | 💰 Oylik budjet | «ovqatga oyiga 2 mln budjet», «budjetim qalay?» — 80%/100% da ogohlantiradi |
-| 📅 Google Calendar | «ertaga 15:00 da Aziz bilan uchrashuv qo'sh», «bu hafta nima bor?» |
+| 📅 Calendar, kun tartibi | «ertaga 15:00 da Aziz bilan uchrashuv qo'sh», «bu hafta nima bor?» (tadbir + eslatma + vazifa), «test uchrashuvni o'chir» (tugma bilan) |
 | ⏰ Eslatmalar | «30 daqiqadan keyin eslat», «har dushanba 18:00 yig'ilish», «eslatmalarni hammasini o'chir» |
 | ✅ Todo | «ro'yxatga qo'sh: kitob o'qish», «vazifalarim?» |
 | 🕌 Namoz, ☀️ brifing | Har kuni namoz eslatmalari; ertalab ob-havo, namoz, kurs, kalendar, budjet, kechagi commitlar |
@@ -96,7 +96,7 @@ pip install -r requirements.txt
 ```
 bot.py        Telegram: handlerlar, buyruqlar, fon vazifalari (eslatma, dayjest, brifing)
 agent.py      Miya: router + kategoriyali tool'lar, pul/majburiy yo'nalishlar
-tools.py      46 ta tool ta'rifi va bajarilishi (xarajat, budjet, brifing...)
+tools.py      48 ta tool ta'rifi va bajarilishi (xarajat, budjet, brifing...)
 brain.py      Aqlli xotira: faktlarni ajratish, suhbat xulosasi
 memory.py     SQLite (data/jarvis.db): tarix, faktlar, xarajat, budjet, kanallar...
 digest.py     Kanallar dayjesti + javobsiz xabarlar

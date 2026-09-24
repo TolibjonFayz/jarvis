@@ -155,16 +155,19 @@ async def _show_pending_sends(update: Update, chat_id):
         if p["chat_id"] != chat_id or p["shown"]:
             continue
         p["shown"] = True
-        leave = p.get("kind") == "leave"
+        kind = p.get("kind", "send")
+        yes_label, text = {
+            "leave": ("🚪 Chiqish", f"🚪 {p['to_name']} — chiqilsinmi?"),
+            "gcal_delete": ("🗑 O'chirish", f"🗑 Kalendardan o'chirilsinmi?\n{p['to_name']}"),
+        }.get(kind, (
+            "✅ Yuborish",
+            f"📨 Qabul qiluvchi: {p['to_name']}\n\n\"{p['text']}\"\n\nYuborilsinmi?",
+        ))
         kb = InlineKeyboardMarkup(
             [[
-                InlineKeyboardButton("🚪 Chiqish" if leave else "✅ Yuborish", callback_data=f"tgy:{sid}"),
+                InlineKeyboardButton(yes_label, callback_data=f"tgy:{sid}"),
                 InlineKeyboardButton("❌ Bekor", callback_data=f"tgn:{sid}"),
             ]]
-        )
-        text = (
-            f"🚪 {p['to_name']} — chiqilsinmi?" if leave else
-            f"📨 Qabul qiluvchi: {p['to_name']}\n\n\"{p['text']}\"\n\nYuborilsinmi?"
         )
         await update.effective_message.reply_text(text, reply_markup=kb)
 
@@ -393,21 +396,26 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("Bu so'rov eskirgan (bot qayta ishga tushgan bo'lishi mumkin).")
         return
 
-    leave = p.get("kind") == "leave"
+    kind = p.get("kind", "send")
     if action == "tgy":
         try:
-            if leave:
+            if kind == "leave":
                 result = await asyncio.to_thread(userbot.leave_chat, p["to_id"])
+            elif kind == "gcal_delete":
+                import gcal
+                await asyncio.to_thread(gcal.delete_event, p["to_id"])
+                result = f"Kalendardan o'chirildi: {p['to_name']}"
             else:
                 result = await asyncio.to_thread(userbot.send_message, p["to_id"], p["text"])
             await q.edit_message_text(f"✅ {result}")
         except Exception as e:
-            log.exception("Userbot amalida xato")
+            log.exception("Tasdiqlangan amalda xato")
             await q.edit_message_text(f"Xato: bajarilmadi — {e}")
-    elif leave:
-        await q.edit_message_text(f"❌ Bekor qilindi ({p['to_name']} da qolding).")
     else:
-        await q.edit_message_text(f"❌ Bekor qilindi ({p['to_name']} ga yuborilmadi).")
+        await q.edit_message_text({
+            "leave": f"❌ Bekor qilindi ({p['to_name']} da qolding).",
+            "gcal_delete": f"❌ Bekor qilindi (tadbir o'chirilmadi).",
+        }.get(kind, f"❌ Bekor qilindi ({p['to_name']} ga yuborilmadi)."))
 
 
 async def _admin_exempt(context, chat_id, user):

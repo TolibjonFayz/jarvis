@@ -96,7 +96,7 @@ TOOL_CATEGORIES = {
     ],
     "xot": ["remember", "recall", "forget"],
     "loyiha": ["projects_list", "project_status", "project_changes"],
-    "kal": ["calendar_events", "calendar_add"],
+    "kal": ["agenda", "calendar_events", "calendar_add", "calendar_delete"],
 }
 
 _TOOL_RE = re.compile(r"<\s*TOOL\s*:?\s*([a-z, ]*)>?", re.IGNORECASE)
@@ -122,6 +122,8 @@ _CLAIM_RE = re.compile(
 # Router bularni tool'siz "bilgandek" javob berib, kanal nomlarini o'ylab topardi —
 # kalit so'z bo'lsa routerni chetlab, to'g'ri shu kategoriyalarga.
 _FORCED_ROUTES = [
+    # "bu hafta nima bor?" — router tool'siz javob berib, yo'q eslatmani o'ylab topdi.
+    (re.compile(r"nima bor|rejam|rejalarim|kun tartib|band\s*(man|emas)|bo.?sh vaqt", re.IGNORECASE), ["kal"]),
     (re.compile(r"\bpin\b|pin qil|chiqib ket|dan chiq|tark et", re.IGNORECASE), ["tg"]),
     (re.compile(r"dayjest|daydjest|digest|kanal", re.IGNORECASE), ["dayjest", "tg"]),
     # "todolarni o'chir" — egasi takroriy eslatmalarni ham "todo" deydi: ikkalasi birga.
@@ -139,7 +141,7 @@ _ACTION_CLAIM_RE = re.compile(
 )
 _MUTATING = (
     "add_", "set_", "cancel_", "complete_", "delete_", "digest_add", "digest_remove",
-    "calendar_add", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
+    "calendar_add", "calendar_delete", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
 )
 
 # Egasi biror narsani O'ZGARTIRISHni so'rayapti — ro'yxat ko'rish oraliq qadam bo'ladi.
@@ -175,7 +177,8 @@ def build_system(chat_id, user_text, router=False):
     now = f"{dt:%Y-%m-%d %H:%M}, {_WEEKDAYS[dt.weekday()]}"
     base = (
         "Sen FRIDAY — shaxsiy AI yordamchisan (Iron Man'dagi F.R.I.D.A.Y. uslubi: xotirjam, "
-        "aniq, ozgina hazilkash). O'zbekcha, do'stona. Ismingni so'rashsa — FRIDAY. "
+        "aniq, ozgina hazilkash). HAR DOIM o'zbek tilida javob ber (egang boshqa til so'ramasa), "
+        "do'stona. Ismingni so'rashsa — FRIDAY. "
         f"Hozir: {now}. "
         "Telegram chat: qisqa va foydali yoz. Formatlash: **qalin**, `kod`, ```kod bloki```, "
         "'- ' ro'yxat mumkin; jadval ISHLATMA. Qalinni kam ishlat (sarlavha yoki eng muhim so'z). "
@@ -203,7 +206,7 @@ def build_system(chat_id, user_text, router=False):
             "todo=vazifalar ro'yxati (qo'shish/ko'rish/bajarildi), "
             "pul=xarajat yozish/hisobot/o'chirish/oylik budjet (masalan 'taksi 25 ming', 'obed 45k', "
             "'bu oy qancha sarfladim'), "
-            "kal=Google Calendar (uchrashuv/tadbir ko'rish yoki qo'shish), "
+            "kal=Google Calendar va kun tartibi (tadbir ko'rish/qo'shish/o'chirish, 'bugun nima bor'), "
             "loyiha=egangning KOD loyihalari/git (ERP, Climavent, bilim manba, fit-uz, "
             "shelf-sort...): holati, 'ERPda bugun nima o'zgardi', 'bugun nima qildim', "
             "xot=FAQAT aniq buyruq: 'eslab qol', 'unut', 'men haqimda nima bilasan'. "
@@ -336,48 +339,59 @@ def _tool_loop(chat_id, history, user_text, cats):
     mutated = False   # o'zgartiruvchi tool (qo'shish/o'chirish...) chaqirildimi
     nudged = False
     pending_final = ""  # oraliq FINAL ro'yxat (o'zgartirish so'ralganda)
-    for _ in range(15):
+    allowed = {t["function"]["name"] for t in tools or []}
+    for step in range(15):
+        # calls: [(id, name, arguments_json)]; content: modelning matni
         try:
             resp = _create(messages=messages, max_tokens=MAX_TOKENS, **tool_kw)
+            msg = resp.choices[0].message
+            content = msg.content
+            calls = [(tc.id, tc.function.name, tc.function.arguments) for tc in msg.tool_calls or []]
         except Exception as e:
             s = str(e)
             if "tool_use_failed" in s:
-                # Model tool'ni buzib chaqirdi — tool'siz qayta so'raymiz.
-                resp = _create(messages=messages, max_tokens=MAX_TOKENS)
+                # Model tool'ni buzib chaqirdi — niyati xato javobida bor, o'shani bajaramiz.
+                # (Avval tool'siz qayta so'ralardi; model yana tool chaqirib, bot yiqilardi.)
+                salv = [(n, a) for n, a in _salvaged_calls(e) if n in allowed]
+                if salv:
+                    calls = [(f"salv{step}_{i}", n, json.dumps(a)) for i, (n, a) in enumerate(salv)]
+                    content = ""
+                else:
+                    try:
+                        content = _create(messages=messages, max_tokens=MAX_TOKENS).choices[0].message.content
+                    except Exception as e2:
+                        if "tool_use_failed" not in str(e2):
+                            raise
+                        content = "⚠️ So'rovni tushunishda xato bo'ldi. Boshqacharoq aytib ko'r."
+                    calls = []
             elif "output_parse_failed" in s:
                 # Model mulohazasida adashdi — bir marta qayta urinamiz.
-                resp = _create(messages=messages, max_tokens=MAX_TOKENS, **tool_kw)
+                msg = _create(messages=messages, max_tokens=MAX_TOKENS, **tool_kw).choices[0].message
+                content = msg.content
+                calls = [(tc.id, tc.function.name, tc.function.arguments) for tc in msg.tool_calls or []]
             else:
                 raise
-        msg = resp.choices[0].message
 
-        if msg.tool_calls:
+        if calls:
             messages.append(
                 {
                     "role": "assistant",
-                    "content": msg.content or "",
+                    "content": content or "",
                     "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
-                            },
-                        }
-                        for tc in msg.tool_calls
+                        {"id": cid, "type": "function", "function": {"name": name, "arguments": arguments}}
+                        for cid, name, arguments in calls
                     ],
                 }
             )
-            for tc in msg.tool_calls:
+            for cid, name, arguments in calls:
                 try:
-                    args = json.loads(tc.function.arguments or "{}")
+                    args = json.loads(arguments or "{}")
                 except Exception:
                     args = {}
-                result = execute_tool(tc.function.name, args, chat_id)
-                log.info("tool %s %s -> %s", tc.function.name, json.dumps(args, ensure_ascii=False)[:200],
+                result = execute_tool(name, args, chat_id)
+                log.info("tool %s %s -> %s", name, json.dumps(args, ensure_ascii=False)[:200],
                          result.replace(FINAL, "")[:80].replace("\n", " | "))
-                is_mut = tc.function.name.startswith(_MUTATING)
+                is_mut = name.startswith(_MUTATING)
                 mutated = mutated or is_mut
                 if result.startswith(FINAL):
                     result = result[len(FINAL):]
@@ -390,11 +404,11 @@ def _tool_loop(chat_id, history, user_text, cats):
                     pending_final = result
                 last_result = result
                 messages.append(
-                    {"role": "tool", "tool_call_id": tc.id, "content": result}
+                    {"role": "tool", "tool_call_id": cid, "content": result}
                 )
             continue
 
-        final = _clean(msg.content)
+        final = _clean(content)
         if tools and not mutated and _ACTION_CLAIM_RE.search(final):
             if not nudged:
                 # "O'chirildi/qo'shildi" dedi, lekin o'zgartiruvchi tool chaqirmadi

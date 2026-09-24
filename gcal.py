@@ -3,8 +3,8 @@
 Sozlash (bir marta): data/google_client.json (OAuth Desktop client) +
 `python setup_gcal.py` -> data/google_token.json. Ruxsat faqat
 calendar.events — kalendar sozlamalari va boshqa Google ma'lumotlariga tegmaydi.
-O'chirish/o'zgartirish ATAYLAB yo'q: chatdagi noto'g'ri tushunish tadbirni
-yo'qotmasin (buni Calendar ilovasida qilish xavfsizroq).
+O'chirish faqat TUGMA bilan tasdiqlangandan keyin (bot.on_button) — chatdagi
+noto'g'ri tushunish tadbirni yo'qotmasin. Tahrirlash yo'q.
 """
 import datetime
 import logging
@@ -186,6 +186,42 @@ def add_event(title, date, time=None, duration_min=60, location="", description=
     return f"📅 Kalendarga qo'shildi: **{body['summary']}** — {when}{rolled}" + (
         f" [↗]({link})" if link else ""
     )
+
+
+def find_events(title="", date=None, days=60):
+    """Nomi (qism) va/yoki sana bo'yicha kelgusi tadbirlar: [{id, title, when}]."""
+    today = datetime.datetime.now(_TZINFO).date()
+    if date:
+        start = resolve_date(date)
+        end = start + datetime.timedelta(days=1)
+    else:
+        start, end = today, today + datetime.timedelta(days=days)
+    as_dt = lambda d: datetime.datetime.combine(d, datetime.time(), _TZINFO).isoformat()
+    resp = _svc().events().list(
+        calendarId="primary", timeMin=as_dt(start), timeMax=as_dt(end), singleEvents=True,
+        orderBy="startTime", maxResults=100, timeZone=TZ,
+    ).execute()
+    q = (title or "").lower().strip()
+    out = []
+    for ev in resp.get("items", []):
+        name = ev.get("summary") or "(nomsiz)"
+        if q and q not in name.lower():
+            continue
+        st = ev.get("start", {})
+        if "dateTime" in st:
+            s = datetime.datetime.fromisoformat(st["dateTime"]).astimezone(_TZINFO)
+            when = f"{_DAYS[s.weekday()]} {s:%d.%m %H:%M}"
+        else:
+            d = datetime.date.fromisoformat(st["date"])
+            when = f"{_DAYS[d.weekday()]} {d:%d.%m}, kun bo'yi"
+        out.append({"id": ev["id"], "title": name, "when": when})
+    return out
+
+
+def delete_event(event_id):
+    """Faqat tugma bilan tasdiqlangandan keyin chaqiriladi."""
+    _svc().events().delete(calendarId="primary", eventId=event_id).execute()
+    return True
 
 
 def brief_line():

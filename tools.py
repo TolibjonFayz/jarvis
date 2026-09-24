@@ -365,6 +365,36 @@ TOOLS = [
         },
     },
     {
+        "name": "calendar_delete",
+        "description": (
+            "Google Calendar tadbirini o'chirishga tayyorlaydi (egasi TUGMA bilan tasdiqlaydi). "
+            "title=nomidan qism, date=sana yoki 'ertaga'/'juma' (ixtiyoriy)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": ["string", "null"]},
+                "date": {"type": ["string", "null"]},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "agenda",
+        "description": (
+            "Kun tartibi: kalendar tadbirlari + eslatmalar + vazifalar. «bugun/ertaga/bu hafta "
+            "nima bor?» uchun. period: bugun/ertaga/hafta yoki date"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "period": {"type": ["string", "null"], "enum": ["bugun", "ertaga", "hafta", None]},
+                "date": {"type": ["string", "null"]},
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "projects_list",
         "description": "Kod loyihalari (git repolar) ro'yxati: oxirgi faollik, branch, commit qilinmaganlar",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -740,6 +770,62 @@ def expense_report(chat_id, period, category=None):
     out.append("\n**Eng kattalari**")
     for amount, cat, note, day in top:
         out.append(f"• {_dm(day)} {note or cat} — {_som(amount)}")
+    return "\n".join(out)
+
+
+# --- Kun tartibi: kalendar + eslatmalar + vazifalar bitta javobda ---
+
+def agenda_text(chat_id, period="bugun", date=None):
+    """«Bugun/ertaga/bu hafta nima bor?» — router buni tool'siz o'zidan to'qirdi
+    (yo'q eslatmani aytdi), shuning uchun hamma manba koddan yig'iladi."""
+    import gcal
+    _tmin, _tmax, start, end = gcal._range(period, date)
+    days = (end - start).days
+    label = (
+        f"{_DAYS[start.weekday()]} {start:%d.%m}" if date else
+        {"bugun": "Bugun", "ertaga": "Ertaga", "hafta": "7 kun"}.get(period, "Bugun")
+    )
+    out = [f"📋 **{label}**" + (f" ({start:%d.%m})" if not date and days == 1 else "")]
+
+    if gcal.available():
+        try:
+            evs = gcal.events(period, date)
+            if evs:
+                out.append("\n📅 **Tadbirlar**")
+                out += [
+                    f"• {(_DAYS[e['day'].weekday()][:2] + ' ' + e['day'].strftime('%d.%m') + ' · ') if days > 1 else ''}"
+                    f"{e['time']} — {e['title']}"
+                    for e in evs
+                ]
+        except Exception as e:
+            out.append(f"\n📅 Kalendarni o'qib bo'lmadi: {str(e)[:80]}")
+
+    t0 = datetime.datetime.combine(start, datetime.time()).timestamp()
+    t1 = datetime.datetime.combine(end, datetime.time()).timestamp()
+    rem = [(t, ts) for _id, t, ts in memory.pending_reminders_with_id(chat_id) if t0 <= ts < t1]
+    if rem:
+        fmt_ = "%d.%m %H:%M" if days > 1 else "%H:%M"
+        out.append("\n⏰ **Eslatmalar**")
+        out += [f"• {datetime.datetime.fromtimestamp(ts):{fmt_}} — {t}" for t, ts in rem]
+
+    weekdays = {(start + datetime.timedelta(days=i)).weekday() for i in range(days)}
+    rec = [r for r in memory.list_recurring(chat_id) if r[4] is None or r[4] in weekdays]
+    if rec:
+        out.append("\n🔁 **Takroriy**")
+        out += [
+            f"• {_DAYS[dow] if dow is not None else 'har kuni'} {h:02d}:{m:02d} — {text}"
+            for _id, text, h, m, dow in rec
+        ]
+
+    todos = memory.list_todos(chat_id)
+    if todos:
+        out.append(f"\n✅ **Ochiq vazifalar** ({len(todos)})")
+        out += [f"• {t}" for _id, t in todos[:5]]
+        if len(todos) > 5:
+            out.append(f"…va yana {len(todos) - 5} ta")
+
+    if len(out) == 1:
+        out[0] += ": hech narsa rejalashtirilmagan."
     return "\n".join(out)
 
 
@@ -1216,6 +1302,35 @@ def execute_tool(name, tool_input, chat_id=None):
                 tool_input["title"], tool_input["date"], tool_input.get("time") or None,
                 tool_input.get("duration_min") or 60, tool_input.get("location") or "",
             )
+
+        if name == "agenda":
+            return FINAL + agenda_text(
+                chat_id, tool_input.get("period") or "bugun", tool_input.get("date") or None
+            )
+
+        if name == "calendar_delete":
+            import gcal
+            if not gcal.available():
+                return gcal.NOT_READY
+            title, date = tool_input.get("title") or "", tool_input.get("date") or None
+            try:
+                found = gcal.find_events(title, date)
+            except ValueError as e:
+                return f"❌ {e}"
+            if not found:
+                return FINAL + "Bunday tadbir topilmadi (kelgusi 60 kun ichida)."
+            if len(found) > 1:
+                return FINAL + (
+                    f"{len(found)} ta tadbir mos keldi — qaysi birini? Sana yoki aniqroq nom ayt:\n"
+                    + "\n".join(f"• {e['when']} — {e['title']}" for e in found[:10])
+                )
+            ev = found[0]
+            sid = next(_send_seq)
+            PENDING_SENDS[sid] = {
+                "kind": "gcal_delete", "chat_id": chat_id, "to_id": ev["id"],
+                "to_name": f"{ev['title']} ({ev['when']})", "text": "", "shown": False,
+            }
+            return FINAL + f"🗑 «{ev['title']}» — {ev['when']}. O'chirishni tasdiqlang 👇"
 
         if name == "projects_list":
             import projects

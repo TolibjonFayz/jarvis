@@ -607,11 +607,23 @@ def usage_since(hours=24):
     return {r["model"]: r["t"] for r in rows}
 
 
-def todos_done_since(chat_id, since_ts):
-    """since_ts dan keyin bajarilgan vazifalar matni."""
+def todos_done_since(chat_id, since_ts, until_ts=None):
+    """[since_ts, until_ts) oralig'ida bajarilgan vazifalar matni."""
     with _conn() as c:
         rows = c.execute(
-            "SELECT text FROM todos WHERE chat_id=? AND done=1 AND done_ts>=? ORDER BY done_ts",
-            (chat_id, since_ts),
+            "SELECT text FROM todos WHERE chat_id=? AND done=1 AND done_ts>=? AND done_ts<? "
+            "ORDER BY done_ts",
+            (chat_id, since_ts, until_ts or 1e12),
         ).fetchall()
     return [r["text"] for r in rows]
+
+
+def due_reminders_with_ts():
+    """Vaqti kelgan, yuborilmagan eslatmalar: [(id, chat_id, text, due_ts)]."""
+    now = time.time()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, chat_id, text, due_ts FROM reminders WHERE sent=0 AND due_ts<=? ORDER BY due_ts",
+            (now,),
+        ).fetchall()
+    return [(r["id"], r["chat_id"], r["text"], r["due_ts"]) for r in rows]

@@ -845,14 +845,22 @@ def agenda_text(chat_id, period="bugun", date=None):
 
 # --- Haftalik hisobot (yakshanba kechqurun; AI yo'q — token sarflanmaydi) ---
 
-def weekly_report_text(chat_id, today=None):
+def weekly_report_text(chat_id, today=None, previous=False):
+    """previous=False: shu hafta (dushanba..bugun) — /hafta.
+    previous=True: o'tgan TO'LIQ hafta (dushanba..yakshanba) — haftaning birinchi
+    yoqilishida avtomatik; «kelasi hafta» o'rniga shu haftaning kalendari."""
     import gcal
     import projects
 
-    d = today or datetime.date.today()
-    start = d - datetime.timedelta(days=d.weekday())            # shu dushanba
+    today = today or datetime.date.today()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    if previous:
+        start, d = this_monday - datetime.timedelta(days=7), this_monday - datetime.timedelta(days=1)
+    else:
+        start, d = this_monday, today
     prev_start = start - datetime.timedelta(days=7)
-    out = [f"📊 **Haftalik hisobot** — {start:%d.%m}–{d:%d.%m}"]
+    title = "O'tgan hafta" if previous else "Haftalik hisobot"
+    out = [f"📊 **{title}** — {start:%d.%m}–{d:%d.%m}"]
 
     # Xarajatlar: shu hafta va o'tgan haftaning shu kunigacha bo'lgan qismi
     rows = memory.expenses_between(chat_id, start.isoformat(), d.isoformat())
@@ -877,7 +885,8 @@ def weekly_report_text(chat_id, today=None):
 
     # Kod
     try:
-        commits = [(r["name"], projects._commits(r, "hafta")) for r in projects.repos()]
+        period = "otgan_hafta" if previous else "hafta"
+        commits = [(r["name"], projects._commits(r, period)) for r in projects.repos()]
         commits = [(n, c) for n, c in commits if c]
     except Exception:
         commits = []
@@ -890,7 +899,8 @@ def weekly_report_text(chat_id, today=None):
 
     # Vazifalar
     since = datetime.datetime.combine(start, datetime.time()).timestamp()
-    done = memory.todos_done_since(chat_id, since)
+    until = datetime.datetime.combine(d + datetime.timedelta(days=1), datetime.time()).timestamp()
+    done = memory.todos_done_since(chat_id, since, until)
     open_ = memory.list_todos(chat_id)
     if done or open_:
         out.append(f"\n✅ **Vazifalar**: {len(done)} ta bajarildi, {len(open_)} ta ochiq")
@@ -900,9 +910,10 @@ def weekly_report_text(chat_id, today=None):
     # Kelasi hafta
     if gcal.available():
         try:
-            nxt = gcal.events_between(d + datetime.timedelta(days=1), 7)
+            # O'tgan hafta hisobotida — shu (boshlangan) hafta; aks holda — kelasi 7 kun.
+            nxt = gcal.events_between(today if previous else d + datetime.timedelta(days=1), 7)
             if nxt:
-                out.append(f"\n📅 **Kelasi hafta** — {len(nxt)} ta tadbir")
+                out.append(f"\n📅 **{'Bu hafta' if previous else 'Kelasi hafta'}** — {len(nxt)} ta tadbir")
                 out += [
                     f"• {_DAYS[e['day'].weekday()][:2]} {e['day']:%d.%m} {e['time']} — {e['title']}"
                     for e in nxt[:8]

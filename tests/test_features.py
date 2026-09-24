@@ -223,3 +223,23 @@ def test_weekly_report_empty(monkeypatch):
 def test_weekly_route():
     import agent
     assert agent.forced_categories("haftalik hisobotni ko'rsat") == ["hisobot"]
+
+
+def test_weekly_report_previous_week(monkeypatch):
+    import projects
+    mon = datetime.date(2026, 9, 28)                              # dushanba ertalab
+    memory.add_expense(CHAT, 300000, "ovqat", "o'tgan hafta", "2026-09-24")
+    memory.add_expense(CHAT, 999999, "uy", "bu hafta — kirmasin", "2026-09-28")
+    seen = []
+    monkeypatch.setattr(projects, "_commits", lambda r, p: seen.append(p) or [])
+    out = tools.weekly_report_text(CHAT, today=mon, previous=True)
+    assert "O'tgan hafta" in out and "21.09–27.09" in out
+    assert "300 000 so'm" in out and "999" not in out
+    assert set(seen) == {"otgan_hafta"}
+
+
+def test_overdue_reminders_query():
+    memory.add_reminder(CHAT, "eski", time.time() - 5 * 3600)
+    memory.add_reminder(CHAT, "kelajak", time.time() + 3600)
+    rows = memory.due_reminders_with_ts()
+    assert [r[2] for r in rows] == ["eski"]

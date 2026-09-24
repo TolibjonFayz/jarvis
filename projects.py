@@ -199,6 +199,9 @@ def _period_bounds(period):
         return start, today
     if period == "hafta":
         return today - datetime.timedelta(days=today.weekday()), None
+    if period == "otgan_hafta":
+        monday = today - datetime.timedelta(days=today.weekday())
+        return monday - datetime.timedelta(days=7), monday
     if period == "oy":
         return today.replace(day=1), None
     return today, None

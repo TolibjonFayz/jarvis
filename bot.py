@@ -2,7 +2,7 @@ import os
 import time
 import asyncio
 import logging
-from datetime import time as dtime, timezone, timedelta
+
 
 from telegram import (
     Update,
@@ -751,18 +751,24 @@ async def on_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _start_captcha(context, msg.chat_id, member)
 
 
-TASHKENT = timezone(timedelta(hours=config.TZ_OFFSET))
 
 
 async def daily_prayers_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har kuni ertalab: avto-namoz yoqilgan chatlarga o'sha kun eslatmalarini qo'yadi."""
+    """Har 10 daqiqada: bugungi namoz eslatmalari hali qo'yilmagan bo'lsa — qo'yadi.
+    (Avval run_daily 00:10 edi — kompyuter yarim tunda o'chiq bo'lsa, kun eslatmasiz
+    qolardi. O'tib ketgan vaqtlar set_prayer_reminders_for'da o'tkazib yuboriladi.)"""
+    from datetime import date as _date
+    today = _date.today().isoformat()
     for chat_id in memory.settings_where("auto_prayer", "1"):
+        if memory.get_setting(chat_id, "prayer_day") == today:
+            continue
         city = memory.get_setting(chat_id, "prayer_city", "Tashkent")
         try:
             await asyncio.to_thread(jtools.set_prayer_reminders_for, chat_id, city, 0)
+            memory.set_setting(chat_id, "prayer_day", today)
             log.info("Avto-namoz qo'yildi [%s] %s", chat_id, city)
         except Exception:
-            log.warning("Avto-namoz xatosi [%s]", chat_id)
+            log.warning("Avto-namoz xatosi [%s] — 10 daqiqadan keyin qayta", chat_id)
 
 
 UNANSWERED_ALERT_HOURS = (12, 19)
@@ -830,9 +836,13 @@ async def cmd_unanswered(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, chat_id, text or "✅ Hamma shaxsiy xabarlarga javob berilgan.")
 
 
+BACKUP_SEND_DAYS = (1, 4)  # seshanba, juma
+
+
 async def backup_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har soatda: bugungi lokal nusxa bo'lmasa — yaratadi. Yakshanba 20:00 dan keyin
-    haftada bir marta siqilgan bazani egasiga fayl qilib yuboradi."""
+    """Har soatda: bugungi lokal nusxa bo'lmasa — yaratadi. Seshanba va juma kunlari
+    kompyuter yoqilgandan keyin (06:00 dan) bir marta siqilgan bazani egasiga yuboradi.
+    (Avval yakshanba 20:00 edi — o'sha payt kompyuter odatda o'chiq.)"""
     from datetime import datetime as _dt
     import backup
     try:
@@ -841,11 +851,11 @@ async def backup_job(context: ContextTypes.DEFAULT_TYPE):
         log.warning("Zaxira nusxa olinmadi: %s", e)
         return
     now = _dt.now()
-    week = now.strftime("%G-W%V")
+    today = now.strftime("%Y-%m-%d")
     owner = config.OWNER_ID
-    if not owner or now.weekday() != 6 or now.hour < 20:
+    if not owner or now.weekday() not in BACKUP_SEND_DAYS or now.hour < 6:
         return
-    if memory.get_setting(owner, "backup_sent") == week:
+    if memory.get_setting(owner, "backup_sent") == today:
         return
     try:
         zpath = await asyncio.to_thread(backup.weekly_zip)
@@ -861,22 +871,23 @@ async def backup_job(context: ContextTypes.DEFAULT_TYPE):
                 disable_notification=True,
             )
         os.remove(zpath)
-        memory.set_setting(owner, "backup_sent", week)
+        memory.set_setting(owner, "backup_sent", today)
         log.info("Haftalik zaxira yuborildi")
     except Exception as e:
         log.warning("Haftalik zaxira yuborilmadi: %s", e)
 
 
-WEEKLY_HOUR = 20
+WEEKLY_HOUR = 6
 
 
 async def weekly_job(context: ContextTypes.DEFAULT_TYPE):
-    """Yakshanba 20:00 dan keyin (bot o'chiq bo'lgan bo'lsa — yoqilganda) haftada
-    bir marta hisobot. Egasi uchun standart yoqiq; «haftalik hisobotni o'chir» bilan o'chadi."""
+    """Haftaning BIRINCHI kompyuter yoqilishida (odatda dushanba ertalab) o'tgan
+    to'liq hafta hisoboti. (Avval yakshanba 20:00 edi — o'sha payt kompyuter o'chiq.)
+    Egasi uchun standart yoqiq; «haftalik hisobotni o'chir» bilan o'chadi."""
     from datetime import datetime as _dt
     owner = config.OWNER_ID
     now = _dt.now()
-    if not owner or now.weekday() != 6 or now.hour < WEEKLY_HOUR:
+    if not owner or now.hour < WEEKLY_HOUR:
         return
     if memory.get_setting(owner, "weekly_report", "1") != "1":
         return
@@ -885,7 +896,7 @@ async def weekly_job(context: ContextTypes.DEFAULT_TYPE):
         return
     memory.set_setting(owner, "weekly_last", week)
     try:
-        text = await asyncio.to_thread(jtools.weekly_report_text, owner)
+        text = await asyncio.to_thread(jtools.weekly_report_text, owner, None, True)
         await _send_md(context.bot, owner, text)
         log.info("Haftalik hisobot yuborildi")
     except Exception as e:
@@ -968,9 +979,21 @@ async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(zpath)
 
 
+BRIEF_LATEST_HOUR = 13  # shundan keyin yoqilsa "xayrli tong" brifingi yuborilmaydi
+
+
 async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har kuni ertalab: tonggi brifing yoqilgan chatlarga xabar yuboradi."""
+    """Har 10 daqiqada: BRIEF_HOUR dan keyin (kompyuter kechroq yoqilsa — yoqilganda),
+    kuniga bir marta tonggi brifing. Avval faqat aynan 07:00 da ishlardi."""
+    from datetime import datetime as _dt
+    now = _dt.now()
+    if not (config.BRIEF_HOUR <= now.hour < BRIEF_LATEST_HOUR):
+        return
+    today = now.strftime("%Y-%m-%d")
     for chat_id in memory.settings_where("morning_brief", "1"):
+        if memory.get_setting(chat_id, "brief_last") == today:
+            continue
+        memory.set_setting(chat_id, "brief_last", today)
         city = memory.get_setting(chat_id, "brief_city", "Tashkent")
         try:
             text = await asyncio.to_thread(jtools.compose_brief, chat_id, city)
@@ -989,14 +1012,59 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             log.warning("Takroriy eslatma yuborilmadi (chat_id=%s)", chat_id)
 
-    for rid, chat_id, text in memory.due_reminders():
+    # Kompyuter o'chiq paytida o'tib ketganlar: yoqilganda hammasi birdaniga otilmasin.
+    now = time.time()
+    missed = {}
+    for rid, chat_id, text, due_ts in memory.due_reminders_with_ts():
         # Avval "yuborildi" deb belgilaymiz — yuborish xato bo'lsa ham
         # cheksiz qayta urinmaslik uchun (best-effort).
         memory.mark_reminder_sent(rid)
+        late = now - due_ts
+        if "namozi vaqti" in text and late > 3600:
+            continue  # namoz vaqti o'tib ketgan — eslatishning ma'nosi yo'q
+        if late > 3 * 3600:
+            missed.setdefault(chat_id, []).append((due_ts, text))
+            continue
         try:
             await context.bot.send_message(chat_id=chat_id, text=f"⏰ Eslatma: {text}")
         except Exception:
             log.warning("Eslatma yuborilmadi (chat_id=%s) — o'tkazib yuborildi", chat_id)
+    for chat_id, items in missed.items():
+        from datetime import datetime as _dt
+        lines = [f"• {_dt.fromtimestamp(ts):%d.%m %H:%M} — {t}" for ts, t in sorted(items)[:10]]
+        try:
+            await _send_md(
+                context.bot, chat_id,
+                "⏰ **Kompyuter o'chiq paytida o'tib ketgan eslatmalar:**\n" + "\n".join(lines),
+            )
+        except Exception:
+            log.warning("O'tib ketgan eslatmalar yuborilmadi (chat_id=%s)", chat_id)
+
+
+BOT_COMMANDS = [
+    ("status", "Holat va token sarfi"),
+    ("hafta", "Haftalik hisobot"),
+    ("dayjest", "Kanallar xulosasi"),
+    ("javobsiz", "Kim javob kutyapti"),
+    ("xato", "Oxirgi javob noto'g'ri — belgilash"),
+    ("zaxira", "Baza nusxasini yuborish"),
+    ("reset", "Suhbatni tozalash"),
+    ("start", "Yordam"),
+]
+
+
+async def _set_commands(app):
+    """Telegram'dagi "/" menyusi. Faqat egasining shaxsiy chatida ko'rinadi —
+    bot moderatsiya qiladigan guruhlarda buyruqlar chiqmasin."""
+    from telegram import BotCommand, BotCommandScopeChat
+    try:
+        cmds = [BotCommand(c, d) for c, d in BOT_COMMANDS]
+        if config.OWNER_ID:
+            await app.bot.set_my_commands(cmds, scope=BotCommandScopeChat(config.OWNER_ID))
+        else:
+            await app.bot.set_my_commands(cmds)
+    except Exception as e:
+        log.warning("Buyruqlar menyusi o'rnatilmadi: %s", e)
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -1013,7 +1081,7 @@ def main():
     config.check()
     memory.init_db()
 
-    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(_set_commands).build()
     app.add_error_handler(on_error)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
@@ -1086,11 +1154,10 @@ def main():
         app.job_queue.run_repeating(backup_job, interval=3600, first=30)
         app.job_queue.run_repeating(usage_job, interval=900, first=120)
         app.job_queue.run_repeating(weekly_job, interval=600, first=150)
-        # Kundalik: avto-namoz (00:10) va tonggi brifing (BRIEF_HOUR:00), Toshkent vaqti.
-        app.job_queue.run_daily(daily_prayers_job, time=dtime(0, 10, tzinfo=TASHKENT))
-        app.job_queue.run_daily(
-            morning_brief_job, time=dtime(config.BRIEF_HOUR, 0, tzinfo=TASHKENT)
-        )
+        # Kundalik: avto-namoz va tonggi brifing — aniq soatda emas, kompyuter
+        # yoqilgandan keyin (kuniga bir marta): run_daily o'chiq kompyuterda o'tib ketardi.
+        app.job_queue.run_repeating(daily_prayers_job, interval=600, first=20)
+        app.job_queue.run_repeating(morning_brief_job, interval=600, first=45)
     else:
         log.warning("job_queue yo'q — eslatmalar ishlamaydi. "
                     "O'rnating: pip install \"python-telegram-bot[job-queue]\"")

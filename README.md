@@ -21,7 +21,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 📅 Calendar, kun tartibi | «ertaga 15:00 da Aziz bilan uchrashuv qo'sh», «bu hafta nima bor?» (tadbir + eslatma + vazifa), «test uchrashuvni o'chir» (tugma bilan) |
 | ⏰ Eslatmalar | «30 daqiqadan keyin eslat», «har dushanba 18:00 yig'ilish», «eslatmalarni hammasini o'chir» |
 | ✅ Todo | «ro'yxatga qo'sh: kitob o'qish», «vazifalarim?» |
-| 📊 Haftalik hisobot | Har yakshanba 20:00: xarajatlar (o'tgan haftaga nisbatan), commitlar, vazifalar, kelasi hafta kalendari — AI'siz, token sarflamaydi |
+| 📊 Haftalik hisobot | Haftaning birinchi kompyuter yoqilishida (odatda dushanba ertalab) — o'tgan hafta: xarajatlar, commitlar, vazifalar + bu hafta kalendari. AI'siz, token sarflamaydi. `/hafta` — joriy hafta |
 | 🕌 Namoz, ☀️ brifing | Har kuni namoz eslatmalari; ertalab ob-havo, namoz, kurs, kalendar, budjet, kechagi commitlar |
 | 📰 Kanallar dayjesti | «kun.uz kanalini dayjestga qo'sh» — har kuni kechqurun xulosa, har band postga havola |
 | 📥 Javobsiz xabarlar | «kimga javob bermadim?» — 1 daqiqadan 3 kungacha, o'qilmaganlar, stiker/GIF ham; 12:00 va 19:00 da o'zi eslatadi |
@@ -115,6 +115,11 @@ run_forever.pyw, setup_autostart.ps1  Windows'da fonda ishlash
 **Yangi imkoniyat qo'shish:** `tools.py` ga tool ta'rifi + bajarilishi → `agent.py`
 dagi `TOOL_CATEGORIES` ga kategoriya → router matniga bir-ikki so'z.
 
+**Kompyuter o'chiq bo'lishi mumkin** — shuning uchun aniq soatga bog'langan `run_daily` yo'q:
+brifing, avto-namoz, dayjest, haftalik hisobot, zaxira har 10-60 daqiqada «bugun/bu hafta
+qilindimi?» deb tekshiradi va yoqilgandan keyin bajaradi. Kechikkan eslatmalar (>3 soat)
+bitta xabarga yig'iladi, o'tib ketgan namoz eslatmalari yuborilmaydi.
+
 **Ishonchlilik qoidalari** (tekin modellar gallyutsinatsiya qiladi — shu sabab):
 - **Pul** xabarlari routerni chetlab o'tadi, model faqat tool tanlaydi, javob bazadan
   so'zma-so'z (aks holda summalarni buzar va «yozildi» deb yolg'on aytardi).
@@ -160,8 +165,8 @@ Botni guruhga qo'shib **admin** qil (xabar o'chirish, ban, cheklash huquqlari bi
 
 - `data/` papkasi git'ga tushmaydi: `userbot.session` (akkauntingga to'liq kirish!),
   Google token, baza. Hech kimga berma.
-- **Zaxira:** har kuni `data/backups/` (7 kun), har yakshanba 20:00 dan keyin baza FRIDAY
-  chatiga fayl bo'lib keladi (`/zaxira` — hozir). Kalitlar (session, token) kirmaydi.
+- **Zaxira:** har kuni `data/backups/` (7 kun); seshanba va juma kunlari kompyuter yoqilgach
+  baza FRIDAY chatiga fayl bo'lib keladi (`/zaxira` — hozir). Kalitlar (session, token) kirmaydi.
   Tiklash: botni to'xtat → zip ichidagi `jarvis.db` ni `data/` ga qo'y → yoq.
 - `run_command` haqiqiy buyruq bajaradi (faqat `workspace/` ichida, faqat egasi uchun).
 - Userbot sessiyasini bir vaqtda ikki joyda ishlatma — Telegram sessiyani bekor qilishi mumkin.

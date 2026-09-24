@@ -94,6 +94,13 @@ def init_db():
             )"""
         )
         c.execute(
+            """CREATE TABLE IF NOT EXISTS usage (
+                ts REAL,
+                model TEXT,
+                tokens INTEGER
+            )"""
+        )
+        c.execute(
             """CREATE TABLE IF NOT EXISTS budgets (
                 chat_id INTEGER,
                 category TEXT,
@@ -573,3 +580,25 @@ def complete_all_todos(chat_id):
         return c.execute(
             "UPDATE todos SET done=1 WHERE chat_id=? AND done=0", (chat_id,)
         ).rowcount
+
+
+# --- Token hisobi (Groq kunlik limiti oxirgi 24 soat bo'yicha) ---
+
+def add_usage(model, tokens):
+    now = time.time()
+    try:
+        with _conn() as c:
+            c.execute("INSERT INTO usage (ts, model, tokens) VALUES (?,?,?)", (now, model, int(tokens)))
+            c.execute("DELETE FROM usage WHERE ts < ?", (now - 3 * 86400,))
+    except sqlite3.Error:
+        pass  # hisob yozilmasa ham javob berish to'xtamasin
+
+
+def usage_since(hours=24):
+    """{model: tokens} oxirgi `hours` soatda."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT model, SUM(tokens) AS t FROM usage WHERE ts >= ? GROUP BY model",
+            (time.time() - hours * 3600,),
+        ).fetchall()
+    return {r["model"]: r["t"] for r in rows}

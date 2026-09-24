@@ -94,7 +94,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Salom bro! Men FRIDAY — shaxsiy AI yordamching.\n"
         "Kod yozaman, fikr aytaman, fayllar bilan ishlayman.\n"
         "/dayjest — kanallar xulosasi · /javobsiz — kim javob kutyapti\n"
-        "/status — holat · /reset — suhbatni tozalash"
+        "/status — holat, tokenlar · /zaxira — baza nusxasi · /reset — suhbatni tozalash"
     )
 
 
@@ -108,16 +108,22 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uptime = (f"{d} kun " if d else "") + f"{h} soat {m} daqiqa"
 
     lines = ["🤖 **FRIDAY holati**", f"⏱ Ishlayapti: {uptime}"]
-    calls = agent.STATS["calls"]
-    if calls:
-        lines.append("\n**Groq chaqiruvlari** (ishga tushgandan beri)")
-        for mdl in agent.MODEL_CHAIN:
-            n = calls.get(mdl, 0)
-            rl = agent.STATS["rate_limited"].get(mdl, 0)
-            extra = f" · limitga urildi {rl} marta" if rl else ""
-            lines.append(f"• `{mdl}` — {n}{extra}")
-    else:
-        lines.append("Groq hali chaqirilmadi.")
+    used = await asyncio.to_thread(memory.usage_since, 24)
+    lines.append("\n**Tokenlar** (oxirgi 24 soat)")
+    for mdl in agent.MODEL_CHAIN:
+        t = used.get(mdl, 0)
+        limit = agent.DAILY_TOKEN_LIMITS.get(mdl)
+        short = mdl.split("/")[-1]
+        rl = agent.STATS["rate_limited"].get(mdl, 0)
+        extra = f" · limitga urildi {rl}×" if rl else ""
+        if limit:
+            pct = round(t * 100 / limit)
+            lines.append(f"• `{short}` {t // 1000}K / {limit // 1000}K\n  {jtools._bar(pct)} {pct}%{extra}")
+        else:
+            lines.append(f"• `{short}` {t // 1000}K{extra}")
+    gem = sum(v for k, v in used.items() if k.startswith("gemini:"))
+    if gem:
+        lines.append(f"• `gemini` (rasm) {gem // 1000}K")
 
     c = await asyncio.to_thread(memory.status_counts, chat_id)
     lines += [
@@ -823,6 +829,85 @@ async def cmd_unanswered(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, chat_id, text or "✅ Hamma shaxsiy xabarlarga javob berilgan.")
 
 
+async def backup_job(context: ContextTypes.DEFAULT_TYPE):
+    """Har soatda: bugungi lokal nusxa bo'lmasa — yaratadi. Yakshanba 20:00 dan keyin
+    haftada bir marta siqilgan bazani egasiga fayl qilib yuboradi."""
+    from datetime import datetime as _dt
+    import backup
+    try:
+        path = await asyncio.to_thread(backup.daily)
+    except Exception as e:
+        log.warning("Zaxira nusxa olinmadi: %s", e)
+        return
+    now = _dt.now()
+    week = now.strftime("%G-W%V")
+    owner = config.OWNER_ID
+    if not owner or now.weekday() != 6 or now.hour < 20:
+        return
+    if memory.get_setting(owner, "backup_sent") == week:
+        return
+    try:
+        zpath = await asyncio.to_thread(backup.weekly_zip)
+        ok = await asyncio.to_thread(backup.integrity_ok, path)
+        with open(zpath, "rb") as f:
+            await context.bot.send_document(
+                owner, f, filename=os.path.basename(zpath),
+                caption=(
+                    f"💾 Haftalik zaxira nusxa ({now:%d.%m.%Y})"
+                    + ("" if ok else " ⚠️ tekshiruvdan o'tmadi!")
+                    + "\nTiklash: botni to'xtat → ichidagi jarvis.db ni data/ ga qo'y → yoq."
+                ),
+                disable_notification=True,
+            )
+        os.remove(zpath)
+        memory.set_setting(owner, "backup_sent", week)
+        log.info("Haftalik zaxira yuborildi")
+    except Exception as e:
+        log.warning("Haftalik zaxira yuborilmadi: %s", e)
+
+
+async def usage_job(context: ContextTypes.DEFAULT_TYPE):
+    """Kuchli model kunlik limitining 80% i ishlatilsa — egasini ogohlantiradi
+    (12 soatda bir martadan ko'p emas)."""
+    owner = config.OWNER_ID
+    if not owner:
+        return
+    main = agent.MODEL_CHAIN[0]
+    limit = agent.DAILY_TOKEN_LIMITS.get(main)
+    if not limit:
+        return
+    used = (await asyncio.to_thread(memory.usage_since, 24)).get(main, 0)
+    pct = used * 100 / limit
+    last = float(memory.get_setting(owner, "usage_warned", "0") or 0)
+    if pct < 80 or time.time() - last < 12 * 3600:
+        return
+    memory.set_setting(owner, "usage_warned", time.time())
+    await _send_md(
+        context.bot, owner,
+        f"⚠️ Kuchli model (`{main.split('/')[-1]}`) kunlik limitining **{pct:.0f}%** i ishlatildi "
+        f"({used // 1000}K / {limit // 1000}K, oxirgi 24 soat). Tugasa javoblarni kuchsizroq "
+        "zaxira model beradi — sifat biroz pasayishi mumkin. Limit asta-sekin tiklanadi.",
+    )
+
+
+async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/zaxira — hozir nusxa olib, chatga yuboradi."""
+    if not _authorized(update):
+        return
+    import backup
+    chat_id = update.effective_chat.id
+    path = await asyncio.to_thread(backup.daily)
+    zpath = await asyncio.to_thread(backup.weekly_zip)
+    ok = await asyncio.to_thread(backup.integrity_ok, path)
+    with open(zpath, "rb") as f:
+        await context.bot.send_document(
+            chat_id, f, filename=os.path.basename(zpath),
+            caption=f"💾 Zaxira nusxa{'' if ok else ' ⚠️ tekshiruvdan o‘tmadi!'} — "
+                    "xotira, xarajatlar, eslatmalar, kanallar. Kalitlar (session, token) kirmaydi.",
+        )
+    os.remove(zpath)
+
+
 async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
     """Har kuni ertalab: tonggi brifing yoqilgan chatlarga xabar yuboradi."""
     for chat_id in memory.settings_where("morning_brief", "1"):
@@ -875,6 +960,7 @@ def main():
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("dayjest", cmd_digest))
     app.add_handler(CommandHandler("javobsiz", cmd_unanswered))
+    app.add_handler(CommandHandler("zaxira", cmd_backup))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(
@@ -935,6 +1021,8 @@ def main():
         app.job_queue.run_repeating(check_reminders, interval=30, first=10)
         app.job_queue.run_repeating(digest_job, interval=600, first=60)
         app.job_queue.run_repeating(unanswered_job, interval=600, first=90)
+        app.job_queue.run_repeating(backup_job, interval=3600, first=30)
+        app.job_queue.run_repeating(usage_job, interval=900, first=120)
         # Kundalik: avto-namoz (00:10) va tonggi brifing (BRIEF_HOUR:00), Toshkent vaqti.
         app.job_queue.run_daily(daily_prayers_job, time=dtime(0, 10, tzinfo=TASHKENT))
         app.job_queue.run_daily(

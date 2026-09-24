@@ -49,6 +49,7 @@ def _chat(system, user, max_tokens=700):
                 max_tokens=max_tokens,
                 temperature=0,
             )
+            memory.add_usage(m, getattr(r.usage, "total_tokens", 0) or 0)
             return _THINK_RE.sub("", r.choices[0].message.content or "").strip()
         except RateLimitError as e:
             last = e

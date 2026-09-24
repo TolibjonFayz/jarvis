@@ -12,6 +12,7 @@ import re
 
 from groq import Groq
 
+import memory
 from config import GROQ_API_KEY
 
 MOD_MODEL = "qwen/qwen3.8-27b"
@@ -82,6 +83,7 @@ def check_message(text):
             max_tokens=200,
             temperature=0,
         )
+        memory.add_usage(MOD_MODEL, getattr(r.usage, "total_tokens", 0) or 0)
         raw = r.choices[0].message.content or ""
         verdict = _THINK_RE.sub("", raw).strip().upper()
         if verdict.startswith("HA"):

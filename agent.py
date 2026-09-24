@@ -34,6 +34,10 @@ MODEL_CHAIN = [
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
+# Groq tekin tarifining kunlik token limiti (oxirgi 24 soat bo'yicha). qwen'niki
+# hujjatlanmagan — /status faqat sarfni ko'rsatadi.
+DAILY_TOKEN_LIMITS = {"openai/gpt-oss-120b": 200_000, "openai/gpt-oss-20b": 200_000}
+
 # /status uchun: bot ishga tushgandan beri qaysi model necha marta chaqirildi.
 STATS = {"calls": {}, "rate_limited": {}, "last_model": None}
 
@@ -65,6 +69,7 @@ def _create(**kwargs):
                     resp = client.chat.completions.create(model=m, **kwargs)
                     STATS["calls"][m] = STATS["calls"].get(m, 0) + 1
                     STATS["last_model"] = m
+                    memory.add_usage(m, getattr(resp.usage, "total_tokens", 0) or 0)
                     return resp
                 except RateLimitError as e:
                     STATS["rate_limited"][m] = STATS["rate_limited"].get(m, 0) + 1

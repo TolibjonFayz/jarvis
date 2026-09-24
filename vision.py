@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 
 import config
+import memory
 import net
 
 log = logging.getLogger("jarvis.vision")
@@ -66,6 +67,7 @@ def describe(image_bytes, mime="image/jpeg", note=""):
             last = f"{model}: {e}"
             log.warning("Gemini tarmoq xatosi: %s", e)
             continue
+        memory.add_usage(f"gemini:{model}", (data.get("usageMetadata") or {}).get("totalTokenCount", 0))
         cands = data.get("candidates") or []
         text = "".join(
             p.get("text", "") for p in (cands[0].get("content", {}).get("parts", []) if cands else [])

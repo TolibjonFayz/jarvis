@@ -21,6 +21,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 📅 Calendar, kun tartibi | «ertaga 15:00 da Aziz bilan uchrashuv qo'sh», «bu hafta nima bor?» (tadbir + eslatma + vazifa), «test uchrashuvni o'chir» (tugma bilan) |
 | ⏰ Eslatmalar | «30 daqiqadan keyin eslat», «har dushanba 18:00 yig'ilish», «eslatmalarni hammasini o'chir» |
 | ✅ Todo | «ro'yxatga qo'sh: kitob o'qish», «vazifalarim?» |
+| 📊 Haftalik hisobot | Har yakshanba 20:00: xarajatlar (o'tgan haftaga nisbatan), commitlar, vazifalar, kelasi hafta kalendari — AI'siz, token sarflamaydi |
 | 🕌 Namoz, ☀️ brifing | Har kuni namoz eslatmalari; ertalab ob-havo, namoz, kurs, kalendar, budjet, kechagi commitlar |
 | 📰 Kanallar dayjesti | «kun.uz kanalini dayjestga qo'sh» — har kuni kechqurun xulosa, har band postga havola |
 | 📥 Javobsiz xabarlar | «kimga javob bermadim?» — 1 daqiqadan 3 kungacha, o'qilmaganlar, stiker/GIF ham; 12:00 va 19:00 da o'zi eslatadi |
@@ -31,7 +32,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 🎤 Ovoz | Ovozli xabarni tushunadi, javobni ovoz bilan ham beradi |
 | 🛡 Guruh moderatsiyasi | So'kinish, 18+ rasm/video, spamer, CAPTCHA, xavfli linklar |
 
-**Buyruqlar:** `/start` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/zaxira` · `/reset`
+**Buyruqlar:** `/start` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/hafta` (haftalik hisobot) · `/zaxira` · `/xato [izoh]` (noto'g'ri javobni belgilash) · `/reset`
 
 ---
 
@@ -96,7 +97,7 @@ pip install -r requirements.txt
 ```
 bot.py        Telegram: handlerlar, buyruqlar, fon vazifalari (eslatma, dayjest, brifing)
 agent.py      Miya: router + kategoriyali tool'lar, pul/majburiy yo'nalishlar
-tools.py      48 ta tool ta'rifi va bajarilishi (xarajat, budjet, brifing...)
+tools.py      50 ta tool ta'rifi va bajarilishi (xarajat, budjet, brifing...)
 brain.py      Aqlli xotira: faktlarni ajratish, suhbat xulosasi
 memory.py     SQLite (data/jarvis.db): tarix, faktlar, xarajat, budjet, kanallar...
 digest.py     Kanallar dayjesti + javobsiz xabarlar

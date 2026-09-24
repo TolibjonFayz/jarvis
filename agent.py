@@ -135,6 +135,7 @@ TOOL_CATEGORIES = {
     "xot": ["remember", "recall", "forget"],
     "loyiha": ["projects_list", "project_status", "project_changes"],
     "kal": ["agenda", "calendar_events", "calendar_add", "calendar_delete"],
+    "hisobot": ["weekly_report", "set_weekly_report"],
 }
 
 _TOOL_RE = re.compile(r"<\s*TOOL\s*:?\s*([a-z, ]*)>?", re.IGNORECASE)
@@ -160,6 +161,7 @@ _CLAIM_RE = re.compile(
 # Router bularni tool'siz "bilgandek" javob berib, kanal nomlarini o'ylab topardi —
 # kalit so'z bo'lsa routerni chetlab, to'g'ri shu kategoriyalarga.
 _FORCED_ROUTES = [
+    (re.compile(r"haftalik", re.IGNORECASE), ["hisobot"]),
     # "bu hafta nima bor?" — router tool'siz javob berib, yo'q eslatmani o'ylab topdi.
     (re.compile(r"nima bor|rejam|rejalarim|kun tartib|band\s*(man|emas)|bo.?sh vaqt", re.IGNORECASE), ["kal"]),
     (re.compile(r"\bpin\b|pin qil|chiqib ket|dan chiq|tark et", re.IGNORECASE), ["tg"]),

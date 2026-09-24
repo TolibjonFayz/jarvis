@@ -194,3 +194,32 @@ def test_sticker_counts_and_preview():
     m = _msg(sticker=True, file=NS(emoji="😃"))
     assert userbot._needs_no_reply(m) is False  # stikerlar endi hisoblanadi
     assert userbot._preview(m) == "(stiker 😃)"
+
+
+# --- Haftalik hisobot ---
+
+def test_weekly_report(monkeypatch):
+    import projects
+    sun = datetime.date(2026, 9, 27)          # yakshanba
+    memory.add_expense(CHAT, 300000, "ovqat", "bozor", "2026-09-22")
+    memory.add_expense(CHAT, 100000, "transport", "taksi", "2026-09-25")
+    memory.add_expense(CHAT, 200000, "ovqat", "o'tgan hafta", "2026-09-16")
+    memory.add_todo(CHAT, "kitob o'qish")
+    memory.complete_todo(CHAT, 1)
+    memory.add_todo(CHAT, "sport")
+    monkeypatch.setattr(projects, "_commits", lambda r, p: [{"add": 10}] * 3 if r["name"] == "jarvis" else [])
+    out = tools.weekly_report_text(CHAT, today=sun)
+    assert "400 000 so'm" in out and "+100%" in out           # 400K vs o'tgan hafta 200K
+    assert "3 ta commit" in out and "jarvis" in out
+    assert "1 ta bajarildi, 1 ta ochiq" in out and "kitob o'qish" in out
+
+
+def test_weekly_report_empty(monkeypatch):
+    import projects
+    monkeypatch.setattr(projects, "_commits", lambda r, p: [])
+    assert "hech narsa" in tools.weekly_report_text(CHAT, today=datetime.date(2026, 9, 27))
+
+
+def test_weekly_route():
+    import agent
+    assert agent.forced_categories("haftalik hisobotni ko'rsat") == ["hisobot"]

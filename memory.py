@@ -83,6 +83,9 @@ def init_db():
         ):
             if col not in cols:
                 c.execute(f"ALTER TABLE memories ADD COLUMN {col} {ddl}")
+        # Haftalik hisobot uchun: vazifa qachon bajarilgani.
+        if "done_ts" not in {r["name"] for r in c.execute("PRAGMA table_info(todos)")}:
+            c.execute("ALTER TABLE todos ADD COLUMN done_ts REAL")
         c.execute(
             """CREATE TABLE IF NOT EXISTS digest_channels (
                 chat_id INTEGER,
@@ -328,7 +331,7 @@ def complete_todo(chat_id, number=None, text=None):
     if not target:
         return None
     with _conn() as c:
-        c.execute("UPDATE todos SET done=1 WHERE id=?", (target[0],))
+        c.execute("UPDATE todos SET done=1, done_ts=? WHERE id=?", (time.time(), target[0]))
     return target[1]
 
 
@@ -578,7 +581,7 @@ def cancel_all_recurring(chat_id):
 def complete_all_todos(chat_id):
     with _conn() as c:
         return c.execute(
-            "UPDATE todos SET done=1 WHERE chat_id=? AND done=0", (chat_id,)
+            "UPDATE todos SET done=1, done_ts=? WHERE chat_id=? AND done=0", (time.time(), chat_id)
         ).rowcount
 
 
@@ -602,3 +605,13 @@ def usage_since(hours=24):
             (time.time() - hours * 3600,),
         ).fetchall()
     return {r["model"]: r["t"] for r in rows}
+
+
+def todos_done_since(chat_id, since_ts):
+    """since_ts dan keyin bajarilgan vazifalar matni."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT text FROM todos WHERE chat_id=? AND done=1 AND done_ts>=? ORDER BY done_ts",
+            (chat_id, since_ts),
+        ).fetchall()
+    return [r["text"] for r in rows]

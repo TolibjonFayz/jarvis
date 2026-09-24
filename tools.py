@@ -395,6 +395,20 @@ TOOLS = [
         },
     },
     {
+        "name": "weekly_report",
+        "description": "Haftalik hisobot: xarajatlar, commitlar, vazifalar, kelasi hafta kalendari",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "set_weekly_report",
+        "description": "Har yakshanba 20:00 dagi haftalik hisobotni yoqadi/o'chiradi",
+        "input_schema": {
+            "type": "object",
+            "properties": {"on": {"type": "boolean"}},
+            "required": ["on"],
+        },
+    },
+    {
         "name": "projects_list",
         "description": "Kod loyihalari (git repolar) ro'yxati: oxirgi faollik, branch, commit qilinmaganlar",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -826,6 +840,78 @@ def agenda_text(chat_id, period="bugun", date=None):
 
     if len(out) == 1:
         out[0] += ": hech narsa rejalashtirilmagan."
+    return "\n".join(out)
+
+
+# --- Haftalik hisobot (yakshanba kechqurun; AI yo'q — token sarflanmaydi) ---
+
+def weekly_report_text(chat_id, today=None):
+    import gcal
+    import projects
+
+    d = today or datetime.date.today()
+    start = d - datetime.timedelta(days=d.weekday())            # shu dushanba
+    prev_start = start - datetime.timedelta(days=7)
+    out = [f"📊 **Haftalik hisobot** — {start:%d.%m}–{d:%d.%m}"]
+
+    # Xarajatlar: shu hafta va o'tgan haftaning shu kunigacha bo'lgan qismi
+    rows = memory.expenses_between(chat_id, start.isoformat(), d.isoformat())
+    prev = memory.expenses_between(
+        chat_id, prev_start.isoformat(), (prev_start + (d - start)).isoformat()
+    )
+    total, prev_total = sum(r[0] for r in rows), sum(r[0] for r in prev)
+    if total or prev_total:
+        line = f"\n💸 **Xarajatlar**: {_som(total)}"
+        if prev_total:
+            diff = round((total - prev_total) * 100 / prev_total)
+            line += f" ({'+' if diff >= 0 else ''}{diff}% o'tgan haftaga nisbatan)"
+        out.append(line)
+        by_cat = {}
+        for amount, cat, _n, _d in rows:
+            by_cat[cat] = by_cat.get(cat, 0) + amount
+        for cat, s in sorted(by_cat.items(), key=lambda x: -x[1])[:3]:
+            out.append(f"{_cat(cat)} — {_som(s)}")
+        b = budget_brief(chat_id)
+        if b:
+            out.append(b)
+
+    # Kod
+    try:
+        commits = [(r["name"], projects._commits(r, "hafta")) for r in projects.repos()]
+        commits = [(n, c) for n, c in commits if c]
+    except Exception:
+        commits = []
+    if commits:
+        n_all = sum(len(c) for _n, c in commits)
+        added = sum(x["add"] for _n, c in commits for x in c)
+        out.append(f"\n👨‍💻 **Kod**: {n_all} ta commit, {len(commits)} ta loyihada, +{added} qator")
+        for name, c in sorted(commits, key=lambda x: -len(x[1]))[:4]:
+            out.append(f"• {name} — {len(c)}")
+
+    # Vazifalar
+    since = datetime.datetime.combine(start, datetime.time()).timestamp()
+    done = memory.todos_done_since(chat_id, since)
+    open_ = memory.list_todos(chat_id)
+    if done or open_:
+        out.append(f"\n✅ **Vazifalar**: {len(done)} ta bajarildi, {len(open_)} ta ochiq")
+        out += [f"• ✔️ {t}" for t in done[:5]]
+        out += [f"• ⏳ {t}" for _id, t in open_[:3]]
+
+    # Kelasi hafta
+    if gcal.available():
+        try:
+            nxt = gcal.events_between(d + datetime.timedelta(days=1), 7)
+            if nxt:
+                out.append(f"\n📅 **Kelasi hafta** — {len(nxt)} ta tadbir")
+                out += [
+                    f"• {_DAYS[e['day'].weekday()][:2]} {e['day']:%d.%m} {e['time']} — {e['title']}"
+                    for e in nxt[:8]
+                ]
+        except Exception as e:
+            out.append(f"\n📅 Kalendarni o'qib bo'lmadi: {str(e)[:60]}")
+
+    if len(out) == 1:
+        out.append("Bu hafta hali hech narsa yozilmagan.")
     return "\n".join(out)
 
 
@@ -1301,6 +1387,17 @@ def execute_tool(name, tool_input, chat_id=None):
             return FINAL + gcal.add_event(
                 tool_input["title"], tool_input["date"], tool_input.get("time") or None,
                 tool_input.get("duration_min") or 60, tool_input.get("location") or "",
+            )
+
+        if name == "weekly_report":
+            return FINAL + weekly_report_text(chat_id)
+
+        if name == "set_weekly_report":
+            on = bool(tool_input.get("on"))
+            memory.set_setting(chat_id, "weekly_report", "1" if on else "0")
+            return FINAL + (
+                "📊 Haftalik hisobot yoqildi: har yakshanba 20:00." if on
+                else "Haftalik hisobot o'chirildi."
             )
 
         if name == "agenda":

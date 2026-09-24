@@ -104,6 +104,16 @@ def resolve_date(text, today=None):
 def events(period="bugun", date=None, limit=30):
     """[{day, time, title, location}] — ko'rinish uchun tayyor."""
     t_min, t_max, _s, _e = _range(period, date)
+    return _events(t_min, t_max, limit)
+
+
+def events_between(start, days, limit=50):
+    """start (date) dan boshlab `days` kunlik tadbirlar (haftalik hisobot uchun)."""
+    as_dt = lambda d: datetime.datetime.combine(d, datetime.time(), _TZINFO).isoformat()
+    return _events(as_dt(start), as_dt(start + datetime.timedelta(days=days)), limit)
+
+
+def _events(t_min, t_max, limit):
     resp = _svc().events().list(
         calendarId="primary", timeMin=t_min, timeMax=t_max, singleEvents=True,
         orderBy="startTime", maxResults=limit, timeZone=TZ,

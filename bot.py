@@ -93,8 +93,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Salom bro! Men FRIDAY — shaxsiy AI yordamching.\n"
         "Kod yozaman, fikr aytaman, fayllar bilan ishlayman.\n"
-        "/dayjest — kanallar xulosasi · /javobsiz — kim javob kutyapti\n"
-        "/status — holat, tokenlar · /zaxira — baza nusxasi · /reset — suhbatni tozalash"
+        "/dayjest — kanallar xulosasi · /javobsiz — kim javob kutyapti · /hafta — haftalik hisobot\n"
+        "/status — holat, tokenlar · /zaxira — baza nusxasi · /reset — suhbatni tozalash\n"
+        "/xato — oxirgi javob noto'g'ri bo'lsa belgilash (masalan: /xato sanani adashtirdi)"
     )
 
 
@@ -866,6 +867,65 @@ async def backup_job(context: ContextTypes.DEFAULT_TYPE):
         log.warning("Haftalik zaxira yuborilmadi: %s", e)
 
 
+WEEKLY_HOUR = 20
+
+
+async def weekly_job(context: ContextTypes.DEFAULT_TYPE):
+    """Yakshanba 20:00 dan keyin (bot o'chiq bo'lgan bo'lsa — yoqilganda) haftada
+    bir marta hisobot. Egasi uchun standart yoqiq; «haftalik hisobotni o'chir» bilan o'chadi."""
+    from datetime import datetime as _dt
+    owner = config.OWNER_ID
+    now = _dt.now()
+    if not owner or now.weekday() != 6 or now.hour < WEEKLY_HOUR:
+        return
+    if memory.get_setting(owner, "weekly_report", "1") != "1":
+        return
+    week = now.strftime("%G-W%V")
+    if memory.get_setting(owner, "weekly_last") == week:
+        return
+    memory.set_setting(owner, "weekly_last", week)
+    try:
+        text = await asyncio.to_thread(jtools.weekly_report_text, owner)
+        await _send_md(context.bot, owner, text)
+        log.info("Haftalik hisobot yuborildi")
+    except Exception as e:
+        log.warning("Haftalik hisobot xatosi: %s", e)
+
+
+FEEDBACK_FILE = os.path.join(config.DATA_DIR, "feedback.jsonl")
+
+
+async def cmd_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/xato [izoh] — oxirgi savol-javobni tahlil uchun data/feedback.jsonl ga yozadi.
+    Bir haftadan keyin shu fayl + /status + bot.log dagi tool chaqiruvlari ko'rib chiqiladi."""
+    if not _authorized(update):
+        return
+    import json as _json
+    from datetime import datetime as _dt
+    chat_id = update.effective_chat.id
+    hist = memory.get_history(chat_id, limit=2)
+    q = next((m["content"] for m in hist if m["role"] == "user"), "")
+    a = next((m["content"] for m in reversed(hist) if m["role"] == "assistant"), "")
+    note = " ".join(context.args or [])
+    with open(FEEDBACK_FILE, "a", encoding="utf-8") as f:
+        f.write(_json.dumps({
+            "ts": f"{_dt.now():%Y-%m-%d %H:%M}", "savol": q[:500], "javob": a[:800], "izoh": note,
+        }, ensure_ascii=False) + "\n")
+    await update.message.reply_text(
+        "📝 Yozib qo'ydim — keyin tahlil qilamiz."
+        + ("" if note else " (Keyingi safar sababini ham yoz: /xato sanani noto'g'ri qo'ydi)")
+    )
+
+
+async def cmd_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        return
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    text = await asyncio.to_thread(jtools.weekly_report_text, chat_id)
+    await _send_md(context.bot, chat_id, text)
+
+
 async def usage_job(context: ContextTypes.DEFAULT_TYPE):
     """Kuchli model kunlik limitining 80% i ishlatilsa — egasini ogohlantiradi
     (12 soatda bir martadan ko'p emas)."""
@@ -961,6 +1021,8 @@ def main():
     app.add_handler(CommandHandler("dayjest", cmd_digest))
     app.add_handler(CommandHandler("javobsiz", cmd_unanswered))
     app.add_handler(CommandHandler("zaxira", cmd_backup))
+    app.add_handler(CommandHandler("hafta", cmd_weekly))
+    app.add_handler(CommandHandler("xato", cmd_feedback))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(
@@ -1023,6 +1085,7 @@ def main():
         app.job_queue.run_repeating(unanswered_job, interval=600, first=90)
         app.job_queue.run_repeating(backup_job, interval=3600, first=30)
         app.job_queue.run_repeating(usage_job, interval=900, first=120)
+        app.job_queue.run_repeating(weekly_job, interval=600, first=150)
         # Kundalik: avto-namoz (00:10) va tonggi brifing (BRIEF_HOUR:00), Toshkent vaqti.
         app.job_queue.run_daily(daily_prayers_job, time=dtime(0, 10, tzinfo=TASHKENT))
         app.job_queue.run_daily(

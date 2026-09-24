@@ -89,7 +89,7 @@ def list_chats(limit=10):
 async def _find_dialog(query):
     """Suhbatni nomi bo'yicha qidiradi (katta-kichik farqsiz, qisman mos)."""
     q = query.lower().lstrip("@")
-    async for d in _client.iter_dialogs(limit=150):
+    async for d in _client.iter_dialogs(limit=400):
         name = (d.name or "").lower()
         uname = (getattr(d.entity, "username", None) or "").lower()
         if q in name or q == uname:
@@ -259,9 +259,7 @@ _ACK_RE = re.compile(
 
 
 def _needs_no_reply(m):
-    """'rahmat', 'ok', 👍, stiker — javob kutmaydi."""
-    if getattr(m, "sticker", None):
-        return True
+    """O'qilgan 'rahmat', 'ok', 👍 — javob kutmaydi (stiker/GIF hisoblanadi)."""
     text = (m.text or "").strip().lower().rstrip("!.) ")
     if not text:
         return False  # rasm/fayl/ovoz — javob kerak bo'lishi mumkin
@@ -271,9 +269,34 @@ def _needs_no_reply(m):
     return len(text) <= 40 and "?" not in text and bool(_ACK_RE.search(text))
 
 
-def unanswered(min_hours=3, max_days=3, limit=200):
-    """Shaxsiy chatlarda oxirgi xabar SENDAN EMAS va min_hours dan ko'p kutgan.
-    Botlar, Telegram xizmati, "Saqlanganlar" va ovozi o'chirilgan chatlar hisobga olinmaydi.
+def _preview(m):
+    """Xabarning qisqa ko'rinishi (media bo'lsa — turi)."""
+    text = (m.text or "").strip().replace("\n", " ")
+    if getattr(m, "sticker", None):
+        emoji = getattr(getattr(m, "file", None), "emoji", None) or ""
+        kind = f"stiker {emoji}".strip()
+    elif getattr(m, "gif", None):
+        kind = "GIF"
+    elif getattr(m, "voice", None):
+        kind = "ovozli xabar"
+    elif getattr(m, "video_note", None):
+        kind = "dumaloq video"
+    elif getattr(m, "photo", None):
+        kind = "rasm"
+    elif getattr(m, "video", None):
+        kind = "video"
+    elif getattr(m, "document", None):
+        kind = "fayl"
+    else:
+        return text[:60] or "(xabar)"
+    return f"({kind}) {text}"[:60].strip() if text else f"({kind})"
+
+
+def unanswered(min_minutes=1, max_days=3, limit=300):
+    """Shaxsiy chatlarda oxirgi xabar SENDAN EMAS va min_minutes..max_days kutgan.
+    O'qilmaganlar HAR DOIM hisoblanadi (stiker/GIF/"rahmat" bo'lsa ham); o'qilgan
+    "rahmat/ok"lar javob kutmaydi. Botlar, Telegram xizmati, "Saqlanganlar" va
+    ovozi o'chirilgan chatlar hisobga olinmaydi.
     Xabar matni hech qayerga yuborilmaydi — faqat egasiga ro'yxat."""
     if not _ensure_started():
         return None
@@ -294,19 +317,70 @@ def unanswered(min_hours=3, max_days=3, limit=200):
             m = d.message
             if m is None or m.out or not m.date:
                 continue
-            if _needs_no_reply(m):
+            if not d.unread_count and _needs_no_reply(m):
                 continue
             age = now - m.date
-            if age < _dt.timedelta(hours=min_hours) or age > _dt.timedelta(days=max_days):
+            if age < _dt.timedelta(minutes=min_minutes) or age > _dt.timedelta(days=max_days):
                 continue
             out.append({
                 "id": d.id,
                 "name": d.name or "?",
-                "hours": int(age.total_seconds() // 3600),
+                "minutes": int(age.total_seconds() // 60),
                 "unread": d.unread_count,
-                "preview": (m.text or "(media/fayl)").strip().replace("\n", " ")[:60],
+                "preview": _preview(m),
             })
-        out.sort(key=lambda x: -x["hours"])
+        out.sort(key=lambda x: -x["minutes"])
         return out
 
     return _run(go(), timeout=120)
+
+
+# --- Chat boshqaruvi: chiqish, pin ---
+
+def _kind(d):
+    return "kanal" if _is_broadcast(d) else ("guruh" if d.is_group else "shaxsiy")
+
+
+def find_chat(query):
+    """{id, name, kind} yoki None (topilmasa)."""
+    if not _ensure_started():
+        return None
+
+    async def go():
+        d = await _find_dialog(query)
+        return {"id": d.id, "name": d.name or "?", "kind": _kind(d)} if d else None
+
+    return _run(go())
+
+
+def leave_chat(chat_id):
+    """Kanal/guruhdan chiqadi. Shaxsiy suhbatga ATAYLAB ishlamaydi —
+    u yerda delete_dialog yozishmani o'chirib yuboradi."""
+    if not _ensure_started():
+        return NOT_READY
+
+    async def go():
+        async for d in _client.iter_dialogs(limit=400):
+            if d.id == chat_id:
+                if _kind(d) == "shaxsiy":
+                    return "Shaxsiy suhbatdan 'chiqib' bo'lmaydi (bu yozishmani o'chirardi)."
+                await _client.delete_dialog(d.entity)
+                return f"«{d.name}» {_kind(d)}idan chiqildi."
+        return "Bu chat endi ro'yxatda yo'q."
+
+    return _run(go())
+
+
+def pin_chat(chat_id, pinned=True):
+    """Chatni ro'yxat tepasiga pin/unpin qiladi."""
+    if not _ensure_started():
+        return NOT_READY
+    from telethon import functions
+
+    async def go():
+        entity = await _client.get_input_entity(chat_id)
+        await _client(functions.messages.ToggleDialogPinRequest(peer=entity, pinned=pinned))
+        return True
+
+    _run(go())
+    return None

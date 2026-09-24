@@ -534,3 +534,42 @@ def list_budgets(chat_id):
             (chat_id,),
         ).fetchall()
     return {r["category"]: r["amount"] for r in rows}
+
+
+# --- Ommaviy o'chirish ("hammasini o'chir") ---
+
+def pending_reminders_with_id(chat_id):
+    """Kutilayotgan bir martalik eslatmalar: [(id, text, due_ts)] vaqt bo'yicha."""
+    now = time.time()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, text, due_ts FROM reminders "
+            "WHERE chat_id=? AND sent=0 AND due_ts>? ORDER BY due_ts",
+            (chat_id, now),
+        ).fetchall()
+    return [(r["id"], r["text"], r["due_ts"]) for r in rows]
+
+
+def cancel_reminder(chat_id, number=None, all_=False):
+    """Bir martalik eslatmani (raqam bo'yicha) yoki hammasini bekor qiladi.
+    O'chirilganlar sonini qaytaradi."""
+    rows = pending_reminders_with_id(chat_id)
+    ids = [r[0] for r in rows] if all_ else (
+        [rows[number - 1][0]] if number and 1 <= number <= len(rows) else []
+    )
+    with _conn() as c:
+        for rid in ids:
+            c.execute("UPDATE reminders SET sent=1 WHERE id=?", (rid,))
+    return len(ids)
+
+
+def cancel_all_recurring(chat_id):
+    with _conn() as c:
+        return c.execute("DELETE FROM recurring WHERE chat_id=?", (chat_id,)).rowcount
+
+
+def complete_all_todos(chat_id):
+    with _conn() as c:
+        return c.execute(
+            "UPDATE todos SET done=1 WHERE chat_id=? AND done=0", (chat_id,)
+        ).rowcount

@@ -78,13 +78,16 @@ _tools = [
 # Faza 2 faqat o'shalarni yuboradi (token tejash).
 TOOL_CATEGORIES = {
     "web": ["web_search", "get_weather", "get_currency", "read_url"],
-    "tg": ["tg_chats", "tg_read", "tg_send", "unanswered", "set_unanswered_alerts"],
+    "tg": [
+        "tg_chats", "tg_read", "tg_send", "tg_leave", "tg_pin",
+        "unanswered", "set_unanswered_alerts",
+    ],
     "dayjest": ["digest_add", "digest_remove", "digest_list", "digest_now", "set_digest"],
     "file": ["read_file", "write_file", "list_files", "run_command"],
     "esl": [
         "set_reminder", "list_reminders", "set_prayer_reminders",
         "set_daily_prayers", "set_morning_brief",
-        "set_recurring_reminder", "list_recurring", "cancel_recurring",
+        "set_recurring_reminder", "list_recurring", "cancel_recurring", "cancel_reminder",
     ],
     "todo": ["add_todo", "list_todos", "complete_todo"],
     "pul": [
@@ -119,11 +122,32 @@ _CLAIM_RE = re.compile(
 # Router bularni tool'siz "bilgandek" javob berib, kanal nomlarini o'ylab topardi —
 # kalit so'z bo'lsa routerni chetlab, to'g'ri shu kategoriyalarga.
 _FORCED_ROUTES = [
+    (re.compile(r"\bpin\b|pin qil|chiqib ket|dan chiq|tark et", re.IGNORECASE), ["tg"]),
     (re.compile(r"dayjest|daydjest|digest|kanal", re.IGNORECASE), ["dayjest", "tg"]),
+    # "todolarni o'chir" — egasi takroriy eslatmalarni ham "todo" deydi: ikkalasi birga.
+    (re.compile(r"eslatma|todo|to-do|vazifa", re.IGNORECASE), ["esl", "todo"]),
     (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
     (re.compile(r"loyiha|\brepo|commit|\bgit\b|branch|nima qildim", re.IGNORECASE), ["loyiha"]),
     (re.compile(r"kalendar|calendar|taqvim|uchrashuv|meeting|tadbir|\bmajlis", re.IGNORECASE), ["kal"]),
 ]
+
+# Tool loop'da: javob amal bajarilganini aytsa, shunday tool chaqirilgan bo'lishi SHART.
+_ACTION_CLAIM_RE = re.compile(
+    r"qo.?shildi|yozildi|o.?chirildi|saqlandi|belgilandi|qo.?yildi|bajarildi|"
+    r"bekor qilindi|yuborildi|pin qilindi|chiqildi",
+    re.IGNORECASE,
+)
+_MUTATING = (
+    "add_", "set_", "cancel_", "complete_", "delete_", "digest_add", "digest_remove",
+    "calendar_add", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
+)
+
+# Egasi biror narsani O'ZGARTIRISHni so'rayapti — ro'yxat ko'rish oraliq qadam bo'ladi.
+_MUTATE_INTENT_RE = re.compile(
+    r"o.?chir|qo.?sh|bekor|olib tashla|chiqib ket|dan chiq|\bpin|unut|belgila|bajardim|"
+    r"qilib bo.?ldim|tozala|yoq\b|yoqib|o.?zgartir|ko.?chir",
+    re.IGNORECASE,
+)
 
 _REMEMBER_RE = re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE)
 
@@ -172,7 +196,7 @@ def build_system(chat_id, user_text, router=False):
         base += (
             "\n\nMUHIM: tool kerak bo'lsa boshqa HECH NARSA yozma, faqat <TOOL:kat> yoz. "
             "kat: web=internet qidiruv/ob-havo/valyuta kursi/havola(URL) o'qish, "
-            "tg=shaxsiy Telegram suhbat/xabar/kimga javob bermadim, "
+            "tg=shaxsiy Telegram suhbat/xabar/kimga javob bermadim/kanal-guruhdan chiqish/pin, "
             "dayjest=Telegram KANALLAR dayjesti (kanal qo'sh/olib tashla/ro'yxat/hozir ko'rsat/vaqti), "
             "file=fayl/kod yozish/buyruq bajarish, "
             "esl=eslatma/namoz/avto-namoz/tonggi brifing/takroriy eslatma, "
@@ -309,6 +333,9 @@ def _tool_loop(chat_id, history, user_text, cats):
     tool_kw = {"tools": tools, "tool_choice": "auto"} if tools else {}
     final = ""
     last_result = ""
+    mutated = False   # o'zgartiruvchi tool (qo'shish/o'chirish...) chaqirildimi
+    nudged = False
+    pending_final = ""  # oraliq FINAL ro'yxat (o'zgartirish so'ralganda)
     for _ in range(15):
         try:
             resp = _create(messages=messages, max_tokens=MAX_TOKENS, **tool_kw)
@@ -348,10 +375,19 @@ def _tool_loop(chat_id, history, user_text, cats):
                 except Exception:
                     args = {}
                 result = execute_tool(tc.function.name, args, chat_id)
+                log.info("tool %s %s -> %s", tc.function.name, json.dumps(args, ensure_ascii=False)[:200],
+                         result.replace(FINAL, "")[:80].replace("\n", " | "))
+                is_mut = tc.function.name.startswith(_MUTATING)
+                mutated = mutated or is_mut
                 if result.startswith(FINAL):
-                    # Tayyor javob (dayjest, ro'yxat) — model qayta yozsa
-                    # havolalar/raqamlar buziladi, shuning uchun so'zma-so'z.
-                    return result[len(FINAL):]
+                    result = result[len(FINAL):]
+                    # Tayyor javob (dayjest, ro'yxat) — model qayta yozsa havolalar/
+                    # raqamlar buziladi, shuning uchun so'zma-so'z. Lekin "o'chir/qo'sh"
+                    # so'ralgan bo'lsa ro'yxat faqat ORALIQ qadam — to'xtamaymiz
+                    # (aks holda ro'yxatni ko'rsatib, o'chirmay qolardi).
+                    if is_mut or not _MUTATE_INTENT_RE.search(user_text):
+                        return result
+                    pending_final = result
                 last_result = result
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": result}
@@ -359,8 +395,28 @@ def _tool_loop(chat_id, history, user_text, cats):
             continue
 
         final = _clean(msg.content)
+        if tools and not mutated and _ACTION_CLAIM_RE.search(final):
+            if not nudged:
+                # "O'chirildi/qo'shildi" dedi, lekin o'zgartiruvchi tool chaqirmadi
+                # (masalan list_todos'ni ko'rib "o'chirildi" derdi). Bir marta qayta.
+                nudged = True
+                messages.append({"role": "assistant", "content": final})
+                messages.append({
+                    "role": "user",
+                    "content": "[Tizim] Sen hech narsani o'zgartiruvchi tool chaqirmading — amal "
+                               "BAJARILMADI. Kerakli tool'ni chaqir yoki bajara olmasligingni halol ayt.",
+                })
+                continue
+            final = (
+                "⚠️ Buni bajara olmadim — hech narsa o'zgarmadi. Aniqroq aytib ko'r "
+                "(masalan: «takroriy eslatmalarni hammasini o'chir»)."
+            )
         break
 
+    if pending_final and not mutated:
+        # Ro'yxat ko'rsatildi, lekin hech narsa o'zgarmadi (masalan "qaysi birini?"
+        # deb so'radi) — ro'yxat so'zma-so'z + modelning savoli.
+        return pending_final + (f"\n\n{final}" if final else "")
     # Tool ishladi-yu, model javob yozmadi — hech bo'lmasa natijani ko'rsatamiz.
     return final or last_result
 

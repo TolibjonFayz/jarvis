@@ -19,13 +19,13 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 💸 Xarajatlar | «taksi 25 ming, obed 45k», «bu oy qancha sarfladim?» |
 | 💰 Oylik budjet | «ovqatga oyiga 2 mln budjet», «budjetim qalay?» — 80%/100% da ogohlantiradi |
 | 📅 Google Calendar | «ertaga 15:00 da Aziz bilan uchrashuv qo'sh», «bu hafta nima bor?» |
-| ⏰ Eslatmalar | «30 daqiqadan keyin eslat», «har dushanba 18:00 yig'ilish» |
+| ⏰ Eslatmalar | «30 daqiqadan keyin eslat», «har dushanba 18:00 yig'ilish», «eslatmalarni hammasini o'chir» |
 | ✅ Todo | «ro'yxatga qo'sh: kitob o'qish», «vazifalarim?» |
 | 🕌 Namoz, ☀️ brifing | Har kuni namoz eslatmalari; ertalab ob-havo, namoz, kurs, kalendar, budjet, kechagi commitlar |
 | 📰 Kanallar dayjesti | «kun.uz kanalini dayjestga qo'sh» — har kuni kechqurun xulosa, har band postga havola |
-| 📥 Javobsiz xabarlar | «kimga javob bermadim?» — 12:00 va 19:00 da o'zi eslatadi |
+| 📥 Javobsiz xabarlar | «kimga javob bermadim?» — 1 daqiqadan 3 kungacha, o'qilmaganlar, stiker/GIF ham; 12:00 va 19:00 da o'zi eslatadi |
 | 👨‍💻 Loyihalar | «loyihalarim qanday?», «ERP'da shu oy nima o'zgardi?», «bugun nima qildim?» |
-| 📱 Shaxsiy Telegram | Chatlarni o'qiydi; xabar yuborish faqat ✅ tugma bilan tasdiqlanganda |
+| 📱 Shaxsiy Telegram | Chatlarni o'qiydi, pin/unpin qiladi; xabar yuborish va kanal/guruhdan chiqish faqat ✅ tugma bilan |
 | 🔍 Ma'lumot | Internet qidiruv, havola o'qish, ob-havo, Markaziy bank kursi |
 | 📄 Hujjat, 🖼 rasm | PDF/DOCX/TXT xulosasi; rasm/chek/skrinshot (chek + «xarajatga qo'sh») |
 | 🎤 Ovoz | Ovozli xabarni tushunadi, javobni ovoz bilan ham beradi |
@@ -96,7 +96,7 @@ pip install -r requirements.txt
 ```
 bot.py        Telegram: handlerlar, buyruqlar, fon vazifalari (eslatma, dayjest, brifing)
 agent.py      Miya: router + kategoriyali tool'lar, pul/majburiy yo'nalishlar
-tools.py      43 ta tool ta'rifi va bajarilishi (xarajat, budjet, brifing...)
+tools.py      46 ta tool ta'rifi va bajarilishi (xarajat, budjet, brifing...)
 brain.py      Aqlli xotira: faktlarni ajratish, suhbat xulosasi
 memory.py     SQLite (data/jarvis.db): tarix, faktlar, xarajat, budjet, kanallar...
 digest.py     Kanallar dayjesti + javobsiz xabarlar
@@ -122,6 +122,8 @@ dagi `TOOL_CATEGORIES` ga kategoriya → router matniga bir-ikki so'z.
   to'g'ri tool'ga boradi — router nomlarni o'ylab topardi.
 - **Nisbiy sanalar** («ertaga», «juma») kodda hisoblanadi (`gcal.resolve_date`).
 - `remember` faqat aniq «eslab qol» buyrug'ida; qolganini fondagi `brain.extract` qiladi.
+- Javob «o'chirildi/qo'shildi» desa, o'zgartiruvchi tool haqiqatan chaqirilgan bo'lishi shart —
+  aks holda bir marta qayta so'raladi, keyin halol «bajara olmadim». Tool chaqiruvlari `data/bot.log` da.
 
 ---
 

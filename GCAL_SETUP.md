@@ -25,5 +25,11 @@ Kalendar sozlamalari, Gmail va boshqa Google ma'lumotlariga tegmaydi.
    **Advanced → Go to FRIDAY (unsafe)** → **Continue**. Terminalda "Tayyor!" chiqadi.
 6. Botni qayta ishga tushir.
 
+**"Access blocked: FRIDAY has not completed the Google verification process" (403)** —
+ilova hali *Testing* holatida va sen tester sifatida qo'shilmagansan. Ikki yo'l:
+- *Google Auth Platform → Audience* → **Publish app** → "In production" (tavsiya), yoki
+- o'sha sahifada *Test users* → **Add users** → o'z Gmail'ing (lekin token 7 kunda o'ladi).
+Keyin `python setup_gcal.py` ni qayta ishga tushir.
+
 `data/` papkasi git'ga tushmaydi — kalit va token faqat shu kompyuterda qoladi.
 Ruxsatni istalgan payt bekor qilish: https://myaccount.google.com/permissions → FRIDAY → Remove.

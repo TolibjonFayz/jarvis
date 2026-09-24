@@ -20,7 +20,7 @@ log = logging.getLogger("jarvis")
 POSTS_PER_CHANNEL = 40
 INPUT_CHARS = 6000          # bitta kanal uchun modelga ketadigan matn chegarasi
 PAUSE_BETWEEN = 10          # soniya — daqiqalik token limitini urmaslik uchun
-UNANSWERED_HOURS = 3
+UNANSWERED_MINUTES = 1
 UNANSWERED_MAX_DAYS = 3
 
 _REF_RE = re.compile(r"\[#(\d+)\]")
@@ -119,16 +119,22 @@ def build_digest(chat_id):
 
 def unanswered_text():
     """Javobsiz shaxsiy xabarlar ro'yxati (Markdown) yoki None — hammasi javob berilgan."""
-    items = userbot.unanswered(UNANSWERED_HOURS, UNANSWERED_MAX_DAYS)
+    items = userbot.unanswered(UNANSWERED_MINUTES, UNANSWERED_MAX_DAYS)
     if items is None:
         return userbot.NOT_READY
     if not items:
         return None
     lines = [f"📥 **Javob kutayotganlar** ({len(items)})"]
     for it in items[:15]:
-        h = it["hours"]
-        age = f"{h // 24} kun" if h >= 24 else f"{h} soat"
-        lines.append(f"• **{it['name']}** — {age} · «{it['preview']}»")
+        mins = it["minutes"]
+        if mins < 60:
+            age = f"{mins} daqiqa"
+        elif mins < 1440:
+            age = f"{mins // 60} soat"
+        else:
+            age = f"{mins // 1440} kun"
+        unread = f" · 🔵 {it['unread']} ta o'qilmagan" if it["unread"] else ""
+        lines.append(f"• **{it['name']}** — {age}{unread} · «{it['preview']}»")
     if len(items) > 15:
         lines.append(f"…va yana {len(items) - 15} ta")
     return "\n".join(lines)

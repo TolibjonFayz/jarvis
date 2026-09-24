@@ -133,8 +133,20 @@ TOOLS = [
     },
     {
         "name": "list_reminders",
-        "description": "Kutilayotgan eslatmalar ro'yxati",
+        "description": "HAMMA eslatmalar: bir martalik + takroriy (raqamlangan)",
         "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "cancel_reminder",
+        "description": "Bir martalik eslatmani o'chiradi: number=list_reminders raqami yoki all=true (hammasi)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "number": {"type": ["number", "null"]},
+                "all": {"type": ["boolean", "null"]},
+            },
+            "required": [],
+        },
     },
     {
         "name": "set_prayer_reminders",
@@ -205,11 +217,14 @@ TOOLS = [
     },
     {
         "name": "cancel_recurring",
-        "description": "Takroriy eslatmani raqami bo'yicha o'chiradi (list_recurring dagi raqam).",
+        "description": "Takroriy eslatmani o'chiradi: number=takroriylar ro'yxatidagi raqam yoki all=true (hammasi)",
         "input_schema": {
             "type": "object",
-            "properties": {"number": {"type": "number"}},
-            "required": ["number"],
+            "properties": {
+                "number": {"type": ["number", "null"]},
+                "all": {"type": ["boolean", "null"]},
+            },
+            "required": [],
         },
     },
     {
@@ -228,12 +243,13 @@ TOOLS = [
     },
     {
         "name": "complete_todo",
-        "description": "Vazifani bajarilgan deb belgilaydi. number=ro'yxatdagi raqam yoki text=vazifa matni",
+        "description": "Vazifani bajarilgan deb belgilaydi. number=ro'yxatdagi raqam, text=vazifa matni yoki all=true (hammasi)",
         "input_schema": {
             "type": "object",
             "properties": {
-                "number": {"type": "number"},
-                "text": {"type": "string"},
+                "number": {"type": ["number", "null"]},
+                "text": {"type": ["string", "null"]},
+                "all": {"type": ["boolean", "null"]},
             },
             "required": [],
         },
@@ -407,6 +423,24 @@ TOOLS = [
             "type": "object",
             "properties": {"chat": {"type": "string"}, "text": {"type": "string"}},
             "required": ["chat", "text"],
+        },
+    },
+    {
+        "name": "tg_leave",
+        "description": "Shaxsiy Telegram: kanal yoki guruhdan chiqishga tayyorlaydi — egasi TUGMA bilan tasdiqlaydi",
+        "input_schema": {
+            "type": "object",
+            "properties": {"chat": {"type": "string"}},
+            "required": ["chat"],
+        },
+    },
+    {
+        "name": "tg_pin",
+        "description": "Shaxsiy Telegram: chatni ro'yxat tepasiga pin qiladi (pin=false — unpin)",
+        "input_schema": {
+            "type": "object",
+            "properties": {"chat": {"type": "string"}, "pin": {"type": ["boolean", "null"]}},
+            "required": ["chat"],
         },
     },
     {
@@ -943,14 +977,26 @@ def execute_tool(name, tool_input, chat_id=None):
             return f"Eslatma o'rnatildi: {minutes:g} daqiqadan keyin (soat {when}) — '{text}'"
 
         if name == "list_reminders":
-            pend = memory.list_pending_reminders(chat_id)
-            if not pend:
-                return "Faol eslatma yo'q."
-            lines = []
-            for text, due_ts in pend:
-                when = datetime.datetime.fromtimestamp(due_ts).strftime("%Y-%m-%d %H:%M")
-                lines.append(f"- {when}: {text}")
-            return "\n".join(lines)
+            # Ikkala turi birga: avval faqat bir martaliklar ko'rsatilardi va
+            # takroriylar bo'lsa ham "eslatma yo'q" deb javob berardi.
+            pend = memory.pending_reminders_with_id(chat_id)
+            rec = memory.list_recurring(chat_id)
+            if not pend and not rec:
+                return FINAL + "⏰ Kutilayotgan eslatma yo'q (bir martalik ham, takroriy ham)."
+            out = []
+            if pend:
+                out.append(f"⏰ **Bir martalik** ({len(pend)})")
+                out += [
+                    f"{i}. {datetime.datetime.fromtimestamp(ts):%d.%m %H:%M} — {text}"
+                    for i, (_id, text, ts) in enumerate(pend, 1)
+                ]
+            if rec:
+                out.append(f"\n🔁 **Takroriy** ({len(rec)})")
+                out += [
+                    f"{i}. {_DAYS[dow] if dow is not None else 'har kuni'} {h:02d}:{m:02d} — {text}"
+                    for i, (_id, text, h, m, dow) in enumerate(rec, 1)
+                ]
+            return FINAL + "\n".join(out)
 
         if name == "tg_chats":
             import userbot
@@ -986,6 +1032,35 @@ def execute_tool(name, tool_input, chat_id=None):
                 "ko'rsatiladi — sen faqat qisqa qilib 'tayyorladim, tugma bilan "
                 "tasdiqlang' de. Tasdiq so'ramа, qayta tayyorlama."
             )
+
+        if name in ("tg_leave", "tg_pin"):
+            import userbot
+            if not userbot._ensure_started():
+                return userbot.NOT_READY
+            ch = userbot.find_chat(tool_input["chat"])
+            if not ch:
+                return f"'{tool_input['chat']}' topilmadi. tg_chats bilan aniq nomini ko'r."
+            if name == "tg_pin":
+                pin = tool_input.get("pin")
+                pin = True if pin is None else bool(pin)
+                try:
+                    userbot.pin_chat(ch["id"], pin)
+                except Exception as e:
+                    if "PinnedDialogsTooMuch" in type(e).__name__:
+                        return FINAL + (
+                            "📌 Pin joylari to'lgan (Telegram: 5 ta, Premium'da 10 ta). "
+                            "Avval birini unpin qil — masalan «X ni pindan ol»."
+                        )
+                    raise
+                return FINAL + (f"📌 «{ch['name']}» pin qilindi." if pin else f"«{ch['name']}» pindan olindi.")
+            if ch["kind"] == "shaxsiy":
+                return FINAL + "Shaxsiy suhbatdan chiqib bo'lmaydi — faqat kanal yoki guruhdan."
+            sid = next(_send_seq)
+            PENDING_SENDS[sid] = {
+                "kind": "leave", "chat_id": chat_id, "to_id": ch["id"],
+                "to_name": f"{ch['name']} ({ch['kind']})", "text": "", "shown": False,
+            }
+            return FINAL + f"🚪 «{ch['name']}» {ch['kind']}idan chiqishni tasdiqlang 👇"
 
         if name == "set_prayer_reminders":
             city = tool_input.get("city", "Tashkent")
@@ -1051,8 +1126,21 @@ def execute_tool(name, tool_input, chat_id=None):
             return "\n".join(out)
 
         if name == "cancel_recurring":
+            if tool_input.get("all"):
+                n = memory.cancel_all_recurring(chat_id)
+                return f"🗑 {n} ta takroriy eslatma o'chirildi." if n else "Takroriy eslatma yo'q edi."
+            if tool_input.get("number") is None:
+                return "Qaysi birini? number (raqam) yoki all=true ber."
             t = memory.cancel_recurring(chat_id, int(tool_input["number"]))
-            return f"O'chirildi: {t}" if t else "Bunday raqamli takroriy eslatma yo'q."
+            return f"🗑 O'chirildi: {t}" if t else "Bunday raqamli takroriy eslatma yo'q."
+
+        if name == "cancel_reminder":
+            if tool_input.get("all"):
+                n = memory.cancel_reminder(chat_id, all_=True)
+                return f"🗑 {n} ta eslatma bekor qilindi." if n else "Kutilayotgan bir martalik eslatma yo'q edi."
+            num = tool_input.get("number")
+            n = memory.cancel_reminder(chat_id, int(num)) if num is not None else 0
+            return "🗑 Eslatma bekor qilindi." if n else "Bunday raqamli eslatma yo'q."
 
         if name == "add_todo":
             memory.add_todo(chat_id, tool_input["text"])
@@ -1065,6 +1153,9 @@ def execute_tool(name, tool_input, chat_id=None):
             return "\n".join(f"{i}. {t}" for i, (_id, t) in enumerate(todos, 1))
 
         if name == "complete_todo":
+            if tool_input.get("all"):
+                n = memory.complete_all_todos(chat_id)
+                return f"✅ {n} ta vazifa bajarildi deb belgilandi." if n else "Ochiq vazifa yo'q edi."
             num = tool_input.get("number")
             num = int(num) if num is not None and num != "" else None
             done = memory.complete_todo(chat_id, num, tool_input.get("text"))

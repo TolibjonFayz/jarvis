@@ -14,6 +14,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 
 | Soha | Misol |
 |---|---|
+| 📨 Forward → amal | Istalgan xabarni forward qil → [📅 Kalendar] [⏰ Eslatma] [✅ Vazifa] [💸 Xarajat] [📝 Xulosa], eng mosi ⭐ bilan (tugma bosilmaguncha model chaqirilmaydi) |
 | 💬 Suhbat, kod | «Python'da fayl o'qish kodini yoz», «buni tushuntir» |
 | 🧠 Aqlli xotira | O'zi eslab qoladi. «men haqimda nima bilasan?», «…ni unut» |
 | 💸 Xarajatlar | «taksi 25 ming, obed 45k», «bu oy qancha sarfladim?» |
@@ -101,6 +102,7 @@ tools.py      50 ta tool ta'rifi va bajarilishi (xarajat, budjet, brifing...)
 brain.py      Aqlli xotira: faktlarni ajratish, suhbat xulosasi
 memory.py     SQLite (data/jarvis.db): tarix, faktlar, xarajat, budjet, kanallar...
 digest.py     Kanallar dayjesti + javobsiz xabarlar
+forward.py    Forward qilingan xabar -> tugma bilan amal
 projects.py   Git loyihalar (faqat o'qish)
 gcal.py       Google Calendar
 vision.py     Gemini rasm ko'rish

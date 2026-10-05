@@ -70,7 +70,8 @@ class Script:
         self.requests = []
 
     def __call__(self, **kwargs):
-        self.requests.append(kwargs)
+        # messages ro'yxatini nusxalaymiz — agent keyin unga qo'shib boradi.
+        self.requests.append({**kwargs, "messages": list(kwargs.get("messages", []))})
         if not self.items:
             raise AssertionError("LLM kutilganidan ko'p chaqirildi")
         item = self.items.pop(0)

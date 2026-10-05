@@ -152,6 +152,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     text = update.message.text
+    if update.message.forward_origin is not None:
+        await _offer_forward_actions(update, chat_id, text)
+        return
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     try:
@@ -376,10 +379,77 @@ _UNMUTE = ChatPermissions(
 )
 
 
+def _forward_keyboard(sid):
+    import forward
+    item = forward.PENDING.get(sid) or {"text": "", "done": set()}
+    order = forward.suggest(item["text"])
+    buttons = [
+        InlineKeyboardButton(
+            ("✔ " if a in item["done"] else "⭐ " if i == 0 else "") + forward.ACTIONS[a],
+            callback_data=f"fw:{a}:{sid}",
+        )
+        for i, a in enumerate(order)
+    ]
+    return InlineKeyboardMarkup([buttons[:3], buttons[3:]])
+
+
+async def _offer_forward_actions(update: Update, chat_id, text):
+    """Forward qilingan xabar: model chaqirilmaydi — avval egasi nima qilishni tanlaydi."""
+    import forward
+    origin = update.message.forward_origin
+    sender = forward.sender_name(origin)
+    sid = forward.add(chat_id, text, sender, getattr(origin, "date", None))
+    await update.message.reply_text(
+        fmt.to_html(forward.preview(text, sender)),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_forward_keyboard(sid),
+    )
+
+
+async def _on_forward_button(update: Update, context: ContextTypes.DEFAULT_TYPE, data):
+    import forward
+    q = update.callback_query
+    _, action, sid_s = data.split(":", 2)
+    sid = int(sid_s)
+    await q.answer(f"{forward.ACTIONS.get(action, '')}…")
+    chat_id = update.effective_chat.id
+
+    async def keep_typing():
+        while True:
+            try:
+                await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            except Exception:
+                pass
+            await asyncio.sleep(4)
+
+    typing = asyncio.create_task(keep_typing())
+    try:
+        out = await asyncio.to_thread(forward.run, sid, action)
+    except Exception as e:
+        log.exception("Forward amalida xato")
+        out = f"Xato: {e}"
+    finally:
+        typing.cancel()
+    await _send_md(context.bot, chat_id, out)
+    await _show_pending_sends(update, chat_id)
+    if sid in forward.PENDING:
+        try:
+            await q.edit_message_reply_markup(reply_markup=_forward_keyboard(sid))
+        except Exception:
+            pass
+
+
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inline tugmalar: CAPTCHA tasdig'i (yangi a'zo) va Telegram yuborish (egasi)."""
+    """Inline tugmalar: CAPTCHA tasdig'i (yangi a'zo), forward amallari va tasdiqlar (egasi)."""
     q = update.callback_query
     data = q.data or ""
+
+    if data.startswith("fw:"):
+        if not _authorized(update):
+            await q.answer()
+            return
+        await _on_forward_button(update, context, data)
+        return
 
     # --- Kirish CAPTCHA: tugmani yangi a'zoning O'ZI bosishi kerak ---
     if data.startswith("cap:"):

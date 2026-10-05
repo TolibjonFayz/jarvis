@@ -206,6 +206,9 @@ def test_weekly_report(monkeypatch):
     memory.add_expense(CHAT, 200000, "ovqat", "o'tgan hafta", "2026-09-16")
     memory.add_todo(CHAT, "kitob o'qish")
     memory.complete_todo(CHAT, 1)
+    with sqlite3.connect(memory.DB_PATH) as c:  # hisobot haftasi ichida bajarilgan deb
+        c.execute("UPDATE todos SET done_ts=? WHERE done=1",
+                  (datetime.datetime(2026, 9, 25, 12, 0).timestamp(),))
     memory.add_todo(CHAT, "sport")
     monkeypatch.setattr(projects, "_commits", lambda r, p: [{"add": 10}] * 3 if r["name"] == "jarvis" else [])
     out = tools.weekly_report_text(CHAT, today=sun)

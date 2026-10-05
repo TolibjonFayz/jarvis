@@ -124,11 +124,20 @@ TOOLS = [
     },
     {
         "name": "set_reminder",
-        "description": "Eslatma qo'yish. minutes=hozirdan necha daqiqa keyin",
+        "description": (
+            "Bir martalik eslatma. Aniq vaqt aytilsa: time=HH:MM va date — aniq sana YYYY-MM-DD "
+            "yoki so'zning o'zi ('bugun', 'ertaga', 'juma') — O'ZING hisoblama. "
+            "'N daqiqa/soatdan keyin' bo'lsa: minutes."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {"text": {"type": "string"}, "minutes": {"type": "number"}},
-            "required": ["text", "minutes"],
+            "properties": {
+                "text": {"type": "string"},
+                "minutes": {"type": ["number", "null"]},
+                "date": {"type": ["string", "null"]},
+                "time": {"type": ["string", "null"]},
+            },
+            "required": ["text"],
         },
     },
     {
@@ -787,6 +796,28 @@ def expense_report(chat_id, period, category=None):
     return "\n".join(out)
 
 
+def reminder_due(date=None, time_=None, minutes=None, now=None):
+    """Eslatma vaqti (timestamp). Sana/vaqtni KOD hisoblaydi: model "ertaga 15:00" ni
+    daqiqaga o'zi aylantirganda adashishi mumkin edi (xuddi "juma" sanasidagi kabi)."""
+    import gcal
+    now = now or datetime.datetime.now()
+    if date or time_:
+        day = gcal.resolve_date(date or "bugun", today=now.date())
+        try:
+            hh, mm = (int(x) for x in (time_ or "09:00").replace(".", ":").split(":")[:2])
+            due = datetime.datetime.combine(day, datetime.time(hh, mm))
+        except (ValueError, TypeError):
+            raise ValueError(f"vaqtni tushunmadim: {time_} (HH:MM bo'lsin)")
+        if due <= now:
+            if date:
+                raise ValueError(f"{due:%d.%m %H:%M} o'tib ketgan vaqt")
+            due += datetime.timedelta(days=1)  # "soat 7 da" — bugungisi o'tgan bo'lsa ertaga
+        return due.timestamp()
+    if minutes:
+        return now.timestamp() + float(minutes) * 60
+    raise ValueError("qachon eslatay? vaqt (HH:MM) yoki daqiqa ayt")
+
+
 # --- Kun tartibi: kalendar + eslatmalar + vazifalar bitta javobda ---
 
 def agenda_text(chat_id, period="bugun", date=None):
@@ -1152,12 +1183,17 @@ def execute_tool(name, tool_input, chat_id=None):
             return _get_weather(tool_input["city"])
 
         if name == "set_reminder":
-            minutes = float(tool_input.get("minutes", 0))
             text = tool_input["text"]
-            due = time.time() + minutes * 60
+            try:
+                due = reminder_due(tool_input.get("date"), tool_input.get("time"),
+                                   tool_input.get("minutes"))
+            except ValueError as e:
+                return f"❌ {e}"
             memory.add_reminder(chat_id, text, due)
-            when = datetime.datetime.fromtimestamp(due).strftime("%H:%M")
-            return f"Eslatma o'rnatildi: {minutes:g} daqiqadan keyin (soat {when}) — '{text}'"
+            dt = datetime.datetime.fromtimestamp(due)
+            day = "bugun" if dt.date() == datetime.date.today() else f"{_DAYS[dt.weekday()]} {dt:%d.%m}"
+            # FINAL: natija o'zi tushunarli — model qayta yozsa ortiqcha gap qo'shardi.
+            return FINAL + f"⏰ Eslatma qo'yildi: {day}, soat {dt:%H:%M} — {text}"
 
         if name == "list_reminders":
             # Ikkala turi birga: avval faqat bir martaliklar ko'rsatilardi va
@@ -1327,7 +1363,7 @@ def execute_tool(name, tool_input, chat_id=None):
 
         if name == "add_todo":
             memory.add_todo(chat_id, tool_input["text"])
-            return f"Ro'yxatga qo'shildi: {tool_input['text']}"
+            return FINAL + f"✅ Vazifa qo'shildi: {tool_input['text']}"
 
         if name == "list_todos":
             todos = memory.list_todos(chat_id)

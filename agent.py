@@ -139,6 +139,7 @@ TOOL_CATEGORIES = {
         "pc_screenshot", "pc_status", "pc_lock", "pc_power", "pc_open_url",
         "pc_play_music", "pc_media",
     ],
+    "music": ["pc_play_music", "pc_media"],
     "hisobot": ["weekly_report", "set_weekly_report"],
 }
 
@@ -166,7 +167,14 @@ _CLAIM_RE = re.compile(
 
 # Router bularni tool'siz "bilgandek" javob berib, kanal nomlarini o'ylab topardi —
 # kalit so'z bo'lsa routerni chetlab, to'g'ri shu kategoriyalarga.
+_DAY_OR_TIME = (
+    r"(dushanba|seshanba|chorshanba|payshanba|juma|shanba|yakshanba|ertaga|ertangi|indinga|"
+    r"\d{1,2}[:.]\d{2}|soat\s*\d{1,2})"
+)
+
 _FORCED_ROUTES = [
+    # Jonli sinov (2026-10-05) topgan: "eslab qol: tug'ilgan kun" eslatma bo'lib qolardi.
+    (re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE), ["xot"]),
     (re.compile(r"haftalik", re.IGNORECASE), ["hisobot"]),
     # "bu hafta nima bor?" — router tool'siz javob berib, yo'q eslatmani o'ylab topdi.
     (re.compile(r"nima bor|rejam|rejalarim|kun tartib|band\s*(man|emas)|bo.?sh vaqt", re.IGNORECASE), ["kal"]),
@@ -177,9 +185,16 @@ _FORCED_ROUTES = [
     (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
     (re.compile(r"loyiha|\brepo|commit|\bgit\b|branch|nima qildim", re.IGNORECASE), ["loyiha"]),
     (re.compile(r"kalendar|calendar|taqvim|uchrashuv|meeting|tadbir|\bmajlis", re.IGNORECASE), ["kal"]),
+    # "juma kuni 15:00 da ERP demo qo'sh" — vazifaga tushib qolardi; o'chirishda esa
+    # "tool yo'q" derdi. Kun/vaqt + qo'sh -> kalendar; kun/vaqt + o'chir -> uchalasi.
+    (re.compile(_DAY_OR_TIME + r".{0,60}(qo.?sh|belgila|rejalashtir)", re.IGNORECASE), ["kal"]),
+    (re.compile(_DAY_OR_TIME + r".{0,60}(o.?chir|bekor qil)", re.IGNORECASE), ["kal", "todo", "esl"]),
+    # Musiqa — faqat musiqa tool'lari: "youtube'ga kir va qo'shiq qo'y" da model link
+    # ochish tool'ini tanlab, qo'shiq qo'ymay qolardi.
+    (re.compile(r"qo.?shi[qg]|musiqa|music|pauza|keyingi qo", re.IGNORECASE), ["music"]),
     # Oxirida: "kompyuterda nima qildim" yuqorida loyihaga ketadi.
     (re.compile(r"ekran|skrinshot|screenshot|kompyuter|noutbuk|\bpc\b|qulfla|uxlat|"
-                r"qo.?shi[qg]|musiqa|music|youtube|ovozni|pauza|keyingi qo", re.IGNORECASE), ["pc"]),
+                r"youtube|ovozni", re.IGNORECASE), ["pc"]),
 ]
 
 # Tool loop'da: javob amal bajarilganini aytsa, shunday tool chaqirilgan bo'lishi SHART.

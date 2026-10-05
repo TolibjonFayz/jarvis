@@ -143,8 +143,11 @@ bitta xabarga yig'iladi, o'tib ketgan namoz eslatmalari yuborilmaydi.
   va `python -m pytest`. Har o'zgarishdan keyin ishga tushir. Bugungacha topilgan har bir
   xato (yolg'on «o'chirildi», «juma» sanasi, ro'yxat ko'rsatib o'chirmay qolish, buzuq tool
   chaqiruvi, null maydon...) uchun alohida test bor.
-- **Jonli sinov** (haqiqiy model, ~20-40K token): `python evals/live_eval.py` — 10 ta tipik
-  so'rov, to'g'ri tool chaqirildimi va keraksiz amal yo'qmi. Faqat katta o'zgarishdan keyin.
+- **Jonli sinov** (haqiqiy model, ~30K token, ~3 daqiqa): `python evals/live_eval.py` — 27 ta
+  holat (xarajat, eslatma, kalendar, musiqa, ovoz, kompyuter, forward...). Tekshiradi: kerakli tool
+  chaqirildimi, xavfli amal tasdiqsiz bajarilmadimi, natija to'g'rimi (sana/vaqt) va **yolg'on
+  tasdiq** yo'qmi. Kompyuter/kalendar/Telegram soxta — hech narsa ochilmaydi/o'chmaydi.
+  Natijalar `data/eval_results.jsonl` da. Katta o'zgarishdan keyin ishga tushir.
 
 ---
 

@@ -137,3 +137,16 @@ def test_money_flow_null_field_salvaged(llm):
     llm(ToolUseFailed("expense_report", {"period": "oy", "category": None}))
     out = agent.respond(CHAT, "bu oy qancha sarfladim?")
     assert "190 000 so'm" in out
+
+
+# --- Jonli sinov (2026-10-05) topgan yo'nalish xatolari ---
+
+@pytest.mark.parametrize("text,cats", [
+    ("eslab qol: onamning tug'ilgan kuni 12-mart", ["xot"]),        # eslatma bo'lib qolardi
+    ("juma kuni soat 15:00 da ERP demo qo'sh", ["kal"]),            # vazifaga tushardi
+    ("juma kungi ERP demoni o'chir", ["kal", "todo", "esl"]),       # "tool yo'q" derdi
+    ("ertaga soat 9 da dori ichishni eslat", ["esl", "todo"]),      # eslatma o'z joyida
+    ("ertangi eslatmani o'chir", ["esl", "todo"]),
+])
+def test_eval_found_routes(text, cats):
+    assert agent.forced_categories(text) == cats

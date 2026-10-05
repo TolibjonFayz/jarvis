@@ -130,9 +130,14 @@ def test_media_keys(monkeypatch):
         pc.media("format")
 
 
-@pytest.mark.parametrize("text", ["Qo'shiq qo'y", "musiqani to'xtat", "youtube'da Ummon qo'y", "ovozni balandlat"])
-def test_music_routes(text):
-    assert agent.forced_categories(text) == ["pc"]
+@pytest.mark.parametrize("text,cats", [
+    ("Qo'shiq qo'y", ["music"]), ("musiqani to'xtat", ["music"]),
+    ("youtube'da Ummon qo'y", ["pc"]), ("ovozni balandlat", ["pc"]),
+    # jonli sinov: model link ochib, qo'shiq qo'ymagan edi -> faqat musiqa tool'lari
+    ("Kompyuterimdan youtube ga kir va qo'shiq qo'y", ["music"]),
+])
+def test_music_routes(text, cats):
+    assert agent.forced_categories(text) == cats
 
 
 def test_required_tool_but_model_asks_question(llm):
@@ -164,8 +169,8 @@ def test_quick_music_skips_model(monkeypatch, llm):
     assert script.requests == []
 
 
-def test_song_name_form_routes_to_pc():
-    assert agent.forced_categories("Ummon guruhining Yolg'izim qo'shig'ini qo'y") == ["pc"]
+def test_song_name_form_routes_to_music():
+    assert agent.forced_categories("Ummon guruhining Yolg'izim qo'shig'ini qo'y") == ["music"]
 
 
 # --- Tez media buyruqlari (2026-10-05: "keyingisi" -> "ovoz pasaytirildi" deb to'qigan) ---

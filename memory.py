@@ -592,7 +592,7 @@ def add_usage(model, tokens):
     try:
         with _conn() as c:
             c.execute("INSERT INTO usage (ts, model, tokens) VALUES (?,?,?)", (now, model, int(tokens)))
-            c.execute("DELETE FROM usage WHERE ts < ?", (now - 3 * 86400,))
+            c.execute("DELETE FROM usage WHERE ts < ?", (now - 35 * 86400,))  # oylik statistika uchun
     except sqlite3.Error:
         pass  # hisob yozilmasa ham javob berish to'xtamasin
 

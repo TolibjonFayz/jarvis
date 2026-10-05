@@ -35,6 +35,7 @@ import forward  # noqa: E402
 import gcal  # noqa: E402
 import memory  # noqa: E402
 import commands  # noqa: E402
+import nowplaying  # noqa: E402
 import pc  # noqa: E402
 import tools  # noqa: E402
 
@@ -54,6 +55,8 @@ def install_fakes():
     pc.lock = lambda: PC.append(("lock",))
     pc.power = lambda a: PC.append(("POWER", a)) or "BAJARILDI"
     pc.open_url = lambda u: PC.append(("open", u)) or f"🌐 ochildi: {u}"
+    nowplaying.now_playing_text = lambda: PC.append(("now",)) or "🎵 **Sinov qo'shig'i**"
+    nowplaying.set_loop = lambda on, chat_id=None: PC.append(("loop", on)) or f"🔁 loop={on}"
 
     def shot():
         p = os.path.join(os.environ["DATA_DIR"], "s.jpg")
@@ -180,6 +183,12 @@ CASES = [
     dict(q="tug'ilgan kunlarni ko'rsat", must={"list_dates"}, pattern=r"(?i)akam"),
     # Haqiqiy suhbat (2026-10-05): undov/xato so'zga xulosadagi eski mavzuni davom ettirgan edi
     dict(q="Yooooooo", setup=seed_stale_summary, not_pattern=r"(?i)baidu|ernie|alibaba|xitoy|qwen"),
+    dict(q="What music is playing now on my pc", must={"pc_media"},
+         check=lambda: PC and PC[-1] == ("now",) or "hozirgi qo'shiq o'qilmadi"),
+    dict(q="Put this music on loop", must={"pc_media"},
+         check=lambda: PC and PC[-1] == ("loop", True) or "loop yoqilmadi"),
+    dict(q="hozir eshitayotgan qo'shig'imni takror-takror qo'yib tur", setup=seed_music, must={"pc_media"},
+         check=lambda: PC and PC[-1] == ("loop", True) or "loop yoqilmadi"),
     dict(q="Next music", must={"pc_media"}, check=lambda: PC and PC[-1] == ("media", "next") or "next bosilmadi"),
     dict(q="eslatmalarni hammasini o'chir", must_any={"cancel_reminder", "cancel_recurring"}),
     dict(q="ERP frontendni ishga tushir", must={"cmd_run"},

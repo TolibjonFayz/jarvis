@@ -99,6 +99,13 @@ def status_text():
             continue
         warn = " ⚠️" if u.percent >= 90 else ""
         lines.append(f"💾 {part.mountpoint} — {_fmt_gb(u.free)} bo'sh ({u.percent:.0f}% band){warn}")
+    try:
+        import nowplaying
+        info = nowplaying.now_playing()
+        if info and info["title"]:
+            lines.append(f"🎵 {info['title'][:60]} · {info['app']}")
+    except Exception:
+        pass
     bat = psutil.sensors_battery() if hasattr(psutil, "sensors_battery") else None
     if bat:
         lines.append(f"🔋 {bat.percent:.0f}%{' · zaryadda' if bat.power_plugged else ''}")

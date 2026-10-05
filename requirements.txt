@@ -16,3 +16,8 @@ google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
 psutil>=5.9
 pycaw>=20240210
+# Hozir nima o'ynayapti + loop (Windows media sessiyasi)
+winrt-runtime>=3.2
+winrt-Windows.Media.Control>=3.2
+winrt-Windows.Foundation>=3.2
+winrt-Windows.Foundation.Collections>=3.2

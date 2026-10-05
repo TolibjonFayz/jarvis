@@ -14,7 +14,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 
 | Soha | Misol |
 |---|---|
-| 🖥 Kompyuter | `/pc` — holat (CPU, xotira, disk) + tugmalar: 📸 ekran, 🔒 qulflash, 😴 uxlatish, ⏻ o'chirish, 🔁 restart (quvvat amallari tasdiq bilan, o'chirish 60 s kechikadi — bekor qilsa bo'ladi); link yuborsang kompyuterda ochadi; 🎵 «qo'shiq qo'y», «Ummon Yolg'izim qo'y» (YouTube), «to'xtat», «keyingisi», «ovozni balandlat» |
+| 🖥 Kompyuter | `/pc` — holat (CPU, xotira, disk) + tugmalar: 📸 ekran, 🔒 qulflash, 😴 uxlatish, ⏻ o'chirish, 🔁 restart (quvvat amallari tasdiq bilan, o'chirish 60 s kechikadi — bekor qilsa bo'ladi); link yuborsang kompyuterda ochadi; 🎵 «qo'shiq qo'y», «Ummon Yolg'izim qo'y» (YouTube), «to'xtat», «keyingisi» / «next music», «ovozni balandlat»; «qaysi qo'shiq o'ynayapti?» (YouTube/Spotify — nomi, ijrochi, vaqt); «shu qo'shiqni takrorla» / «loopni o'chir» (tugashiga 4 s qolganda boshiga qaytaradi, boshqa qo'shiq qo'yilsa o'chadi) |
 | 🛠 Buyruqlar | «ERP frontendni ishga tushir» (dev server → manzil), «fit-uz da git pull qil», «admin panelni build qil», «FRIDAY testlarini ishga tushir», «serverni to'xtat». Faqat `data/commands.json` dagi ro'yxat; prod bazaga yozadigan skriptlar va backend dev serverlar yo'q |
 | 📨 Forward → amal | Istalgan xabarni forward qil → [📅 Kalendar] [⏰ Eslatma] [✅ Vazifa] [💸 Xarajat] [📝 Xulosa], eng mosi ⭐ bilan (tugma bosilmaguncha model chaqirilmaydi) |
 | 💬 Suhbat, kod | «Python'da fayl o'qish kodini yoz», «buni tushuntir» |
@@ -107,6 +107,7 @@ memory.py     SQLite (data/jarvis.db): tarix, faktlar, xarajat, budjet, kanallar
 digest.py     Kanallar dayjesti + javobsiz xabarlar
 forward.py    Forward qilingan xabar -> tugma bilan amal
 pc.py         Kompyuter: ekran, qulf, quvvat, holat, link
+nowplaying.py Hozir nima o'ynayapti + loop (Windows media sessiyasi)
 commands.py   Ruxsat berilgan buyruqlar (build/test/git pull/dev server)
 projects.py   Git loyihalar (faqat o'qish)
 gcal.py       Google Calendar

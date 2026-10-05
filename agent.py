@@ -282,16 +282,45 @@ def _edit1(a, b):
     return any(a == b[:i] + b[i + 1:] for i in range(len(b)))
 
 
+# Pleer holati va takrorlash — gap ichida ham (≤10 so'z): "What music is playing now on my pc"
+# modelga ketib "ma'lumotim yo'q" der, "Put this music on loop"ga "loop yo'q" der edi.
+# "takrorla"/"loop" boshqa gaplarda ham bor ("python for loop nima", "takroriy eslatmalarni
+# o'chir") — shuning uchun shart: qo'shiq so'zi bilan, yoki musiqa yaqinda / loop yoqilgan.
+_OFF = r"(o.?chir|to.?xtat|bekor)\w*"
+_PLAYER_QUICK = [
+    # (regex, action, shart: None | "recent" (musiqa yaqinda) | "looping" (loop yoqilgan))
+    (re.compile(rf"\b(loop|repeat)\w*\s*(ni\s*)?{_OFF}|(stop|turn off|disable)\s*(the\s*)?(loop|repeat)|"
+                rf"\bunloop\b|\bloop\s*off\b|{_SONG}\s*(ni\s*)?takror\w*\s*{_OFF}"), "loop_off", None),
+    (re.compile(rf"takror\w*\s*(ni\s*)?{_OFF}"), "loop_off", "looping"),
+    (re.compile(rf"{_SONG}.*\b(loop|repeat)\b|\b(loop|repeat)\b.*{_SONG}|{_SONG}\s*(ni\s*)?takror\w*|"
+                rf"takror\w*.*{_SONG}|\bon\s*(loop|repeat)\b"), "loop_on", None),
+    (re.compile(r"^(loop|repeat|loop\s*qil|loopga\s*qo.?y|takrorla|takrorlab\s*qo.?y|takror\s*qil)$"),
+     "loop_on", "recent"),
+    (re.compile(rf"what\W*s?\s*({_SONG}\s*)?(is\s*)?(now\s*)?playing|what\s*{_SONG}\s*(is\s*)?(this|that)|now\s*playing|"
+                rf"(nima|qaysi|qanaqa)\s*{_SONG}\s*(hozir\s*)?(o.?ynayapti|ketyapti|chalinyapti|qo.?yilgan)|"
+                rf"(qaysi|qanaqa)\s*{_SONG}\s*(bu|ekan|edi|hozir)|(qaysi|qanaqa)\s*{_SONG}$|"
+                rf"hozir\s*nima\s*(o.?ynayapti|chalinyapti)"), "now_playing", None),
+]
+
+
 def quick_media(text, chat_id):
     """(action, value) yoki None. Faqat qisqa (≤5 so'z) buyruqlar — gap ichida emas."""
     t = _APOS_RE.sub("'", (text or "").lower()).strip(" !.?,")
     t = re.sub(r"\s*(bro|iltimos|ber|chi)$", "", t).strip()
-    if not t or len(t.split()) > 5:
+    if not t or len(t.split()) > 10:
         return None
     try:
         recent = time.time() - float(memory.get_setting(chat_id, "music_ts", "0") or 0) < MUSIC_CONTEXT_SEC
     except ValueError:
         recent = False
+    import nowplaying
+    for rx, action, cond in _PLAYER_QUICK:
+        if cond == "recent" and not recent or cond == "looping" and not nowplaying.LOOP:
+            continue
+        if rx.search(t):
+            return action, None
+    if len(t.split()) > 5:
+        return None
     for rx, action, needs_music in _QUICK_MEDIA:
         m = rx.fullmatch(t)
         if m and (recent or not needs_music):

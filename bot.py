@@ -1171,6 +1171,19 @@ async def cmd_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, chat_id, text)
 
 
+async def loop_job(context: ContextTypes.DEFAULT_TYPE):
+    """Musiqa takrorlash: tugashiga oz qolganda boshiga qaytaradi (nowplaying.LOOP)."""
+    import nowplaying
+    if not nowplaying.LOOP:
+        return
+    msg = await asyncio.to_thread(nowplaying.loop_tick)
+    if msg and msg[0]:
+        try:
+            await _send_md(context.bot, msg[0], msg[1])
+        except Exception:
+            log.warning("Loop xabari yuborilmadi")
+
+
 async def usage_job(context: ContextTypes.DEFAULT_TYPE):
     """Kuchli model kunlik limitining 80% i ishlatilsa — egasini ogohlantiradi
     (12 soatda bir martadan ko'p emas)."""
@@ -1416,6 +1429,8 @@ def main():
         app.job_queue.run_repeating(backup_job, interval=3600, first=30)
         app.job_queue.run_repeating(usage_job, interval=900, first=120)
         app.job_queue.run_repeating(weekly_job, interval=600, first=150)
+        import nowplaying
+        app.job_queue.run_repeating(loop_job, interval=nowplaying.TICK_SEC, first=5)
         # Kundalik: avto-namoz va tonggi brifing — aniq soatda emas, kompyuter
         # yoqilgandan keyin (kuniga bir marta): run_daily o'chiq kompyuterda o'tib ketardi.
         app.job_queue.run_repeating(daily_prayers_job, interval=600, first=20)

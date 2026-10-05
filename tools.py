@@ -607,7 +607,8 @@ TOOLS = [
         "name": "pc_media",
         "description": (
             "Kompyuterdagi pleer va ovoz: play_pause, next, prev, volume_up, volume_down, "
-            "volume_set (value=0-100), mute, unmute, volume_get"
+            "volume_set (value=0-100), mute, unmute, volume_get; now_playing (hozir qaysi qo'shiq "
+            "o'ynayapti), loop_on (hozirgi qo'shiqni takrorlash), loop_off"
         ),
         "input_schema": {
             "type": "object",
@@ -615,6 +616,7 @@ TOOLS = [
                 "action": {"type": "string", "enum": [
                     "play_pause", "next", "prev", "volume_up", "volume_down",
                     "volume_set", "mute", "unmute", "volume_get",
+                    "now_playing", "loop_on", "loop_off",
                 ]},
                 "value": {"type": ["number", "null"]},
             },
@@ -1489,6 +1491,12 @@ def execute_tool(name, tool_input, chat_id=None):
             try:
                 if action in vol:
                     return FINAL + pc.volume(vol[action], value)  # haqiqiy daraja bilan
+                if action in ("now_playing", "loop_on", "loop_off"):
+                    import nowplaying
+                    memory.set_setting(chat_id, "music_ts", time.time())
+                    if action == "now_playing":
+                        return FINAL + nowplaying.now_playing_text()
+                    return FINAL + nowplaying.set_loop(action == "loop_on", chat_id)
                 memory.set_setting(chat_id, "music_ts", time.time())
                 return FINAL + pc.media(action)
             except ValueError as e:

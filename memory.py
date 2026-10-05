@@ -74,6 +74,18 @@ def init_db():
                 last_fired TEXT DEFAULT ''
             )"""
         )
+        # Yillik sanalar (tug'ilgan kun, yubiley): bir kun oldin va o'sha kuni eslatiladi.
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS dates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER,
+                text TEXT,
+                month INTEGER,
+                day INTEGER,
+                year INTEGER,
+                last_fired TEXT DEFAULT ''
+            )"""
+        )
         # Aqlli xotira ustunlari (eski bazalarga ham qo'shiladi).
         cols = {r["name"] for r in c.execute("PRAGMA table_info(memories)")}
         for col, ddl in (
@@ -396,6 +408,78 @@ def due_recurring(now_dt=None):
     return fired
 
 
+# --- Yillik sanalar ---
+
+DATE_HOUR = 9  # bir kun oldin va o'sha kuni shu soatdan keyin (PC yoqilganda) eslatadi
+
+
+def next_occurrence(month, day, today):
+    """Bugundan boshlab eng yaqin sana (29-fevral kabisa bo'lmagan yilda 28-fevral)."""
+    def safe(y):
+        d = day
+        while True:
+            try:
+                return datetime.date(y, month, d)
+            except ValueError:
+                d -= 1
+
+    occ = safe(today.year)
+    return occ if occ >= today else safe(today.year + 1)
+
+
+def add_date(chat_id, text, month, day, year=None):
+    datetime.date(2000, month, day)  # noto'g'ri sana -> ValueError (2000 kabisa yili)
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO dates (chat_id, text, month, day, year) VALUES (?,?,?,?,?)",
+            (chat_id, text, month, day, year),
+        )
+
+
+def list_dates(chat_id, today=None):
+    """Eng yaqinidan boshlab: (id, text, month, day, year, next_date)."""
+    today = today or datetime.date.today()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, text, month, day, year FROM dates WHERE chat_id=?", (chat_id,)
+        ).fetchall()
+    out = [(r["id"], r["text"], r["month"], r["day"], r["year"],
+            next_occurrence(r["month"], r["day"], today)) for r in rows]
+    return sorted(out, key=lambda r: r[5])
+
+
+def delete_date(chat_id, number):
+    rows = list_dates(chat_id)
+    if not (1 <= number <= len(rows)):
+        return None
+    with _conn() as c:
+        c.execute("DELETE FROM dates WHERE id=?", (rows[number - 1][0],))
+    return rows[number - 1][1]
+
+
+def due_dates(now_dt=None):
+    """[(chat_id, text, year, occ, is_today)] — ertaga yoki bugun bo'lganlar, kuniga bir marta."""
+    now = now_dt or datetime.datetime.now()
+    if now.hour < DATE_HOUR:
+        return []
+    today = now.date()
+    key = today.isoformat()
+    fired = []
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, chat_id, text, month, day, year, last_fired FROM dates"
+        ).fetchall()
+        for r in rows:
+            if r["last_fired"] == key:
+                continue
+            occ = next_occurrence(r["month"], r["day"], today)
+            if (occ - today).days > 1:
+                continue
+            fired.append((r["chat_id"], r["text"], r["year"], occ, occ == today))
+            c.execute("UPDATE dates SET last_fired=? WHERE id=?", (key, r["id"]))
+    return fired
+
+
 def list_pending_reminders(chat_id):
     """Hali kutilayotgan (kelajakdagi) eslatmalar."""
     now = time.time()
@@ -466,6 +550,7 @@ def status_counts(chat_id):
                 chat_id, now,
             ),
             "recurring": one("SELECT COUNT(*) FROM recurring WHERE chat_id=?", chat_id),
+            "dates": one("SELECT COUNT(*) FROM dates WHERE chat_id=?", chat_id),
             "todos": one("SELECT COUNT(*) FROM todos WHERE chat_id=? AND done=0", chat_id),
             "spent_today": one(
                 "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE chat_id=? AND day=?",

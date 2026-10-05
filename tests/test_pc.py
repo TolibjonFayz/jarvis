@@ -195,6 +195,40 @@ def test_quick_media_with_music_context(text, action):
     assert agent.quick_media(text, CHAT)[0] == action
 
 
+# Haqiqiy suhbatdan (2026-10-05): "Next music" modelga ketib, bir marta "Oldingisi" qildi;
+# "Dsvom" (davom) eski mavzuni davom ettirdi.
+@pytest.mark.parametrize("text,action", [
+    ("Next music", "next"), ("next song", "next"), ("Previous music", "prev"),
+    ("previous music", "prev"), ("skip", "next"), ("pause music", "play_pause"),
+    ("musiqani davom ettir", "play_pause"),
+])
+def test_quick_media_english_without_context(text, action):
+    assert agent.quick_media(text, CHAT)[0] == action
+
+
+@pytest.mark.parametrize("text,action", [
+    ("Dsvom", "play_pause"), ("davm", "play_pause"), ("keyngisi", "next"),
+    ("oldngisi", "prev"), ("Davom", "play_pause"), ("resume", "play_pause"), ("back", "prev"),
+])
+def test_quick_media_typos_with_music_context(text, action):
+    import memory, time
+    memory.set_setting(CHAT, "music_ts", time.time())
+    assert agent.quick_media(text, CHAT)[0] == action
+
+
+@pytest.mark.parametrize("text", ["Dsvom", "Yooooooo", "salom", "dvom"])
+def test_typos_without_music_go_to_model(text):
+    # "dvom" musiqasiz — modelga (u yerda «eski mavzuni davom ettirma» qoidasi bor)
+    assert agent.quick_media(text, CHAT) is None
+
+
+def test_summary_is_background_only():
+    import memory
+    memory.set_setting(CHAT, "conv_summary", "Xitoy AI modellari bo'yicha so'rov ochiq qoldi.")
+    s = agent.build_system(CHAT, "Yooooooo", router=True)
+    assert "faqat fon" in s and "eski mavzuni davom ettirma" in s
+
+
 def test_volume_command_reports_real_level(monkeypatch, llm):
     script = llm()  # model chaqirilmasligi kerak
     seen = []

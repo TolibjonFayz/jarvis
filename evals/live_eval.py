@@ -126,6 +126,14 @@ def seed_poisoned_history():
     memory.add_message(CHAT, "assistant", "🔊 Ovoz oshirildi. Yana nima qilay?")
 
 
+def seed_stale_summary():
+    memory.set_setting(CHAT, "conv_summary", "Xitoy AI modellari (Baidu Ernie, Alibaba Qwen...) "
+                       "bo'yicha ma'lumot so'raldi, ro'yxat davom ettirilishi ochiq qoldi.")
+    for _ in range(3):
+        memory.add_message(CHAT, "user", "Davom")
+        memory.add_message(CHAT, "assistant", "⏯ Pauza/davom")
+
+
 def run_forward():
     sid = forward.add(CHAT, "Ertaga soat 15:00 da ofisda uchrashamiz, KP bo'yicha", "Aziz",
                       datetime.datetime.now(datetime.timezone.utc))
@@ -165,7 +173,14 @@ CASES = [
     dict(q="Kompyuterimdan youtube ga kir va qo'shiq qo'y", setup=seed_poisoned_history,
          must={"pc_play_music"}, not_pattern=r"(?i)boshqara olmayman|imkoniyatim yo"),
     dict(q="loyihalarim qanday?", must={"projects_list"}),
-    dict(q="eslab qol: onamning tug'ilgan kuni 12-mart", must={"remember"}),
+    dict(q="eslab qol: onamning tug'ilgan kuni 12-mart", must={"add_date"}, forbid={"set_reminder"},
+         check=lambda: any(r[2:4] == (3, 12) for r in memory.list_dates(CHAT)) or "12-mart sana yo'q"),
+    dict(q="akamning tug'ilgan kuni 15-oktyabr, eslatib tur", must={"add_date"}, forbid={"set_reminder"},
+         check=lambda: any(r[2:4] == (10, 15) for r in memory.list_dates(CHAT)) or "15-oktyabr sana yo'q"),
+    dict(q="tug'ilgan kunlarni ko'rsat", must={"list_dates"}, pattern=r"(?i)akam"),
+    # Haqiqiy suhbat (2026-10-05): undov/xato so'zga xulosadagi eski mavzuni davom ettirgan edi
+    dict(q="Yooooooo", setup=seed_stale_summary, not_pattern=r"(?i)baidu|ernie|alibaba|xitoy|qwen"),
+    dict(q="Next music", must={"pc_media"}, check=lambda: PC and PC[-1] == ("media", "next") or "next bosilmadi"),
     dict(q="eslatmalarni hammasini o'chir", must_any={"cancel_reminder", "cancel_recurring"}),
     dict(q="ERP frontendni ishga tushir", must={"cmd_run"},
          check=lambda: ("CMD", "erp-front-dev") in PC or f"erp-front-dev emas: {[c for c in PC if c[0]=='CMD']}"),

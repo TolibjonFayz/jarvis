@@ -185,8 +185,10 @@ def apply_ops(ops, known_ids):
 _SUMMARY_SYSTEM = (
     "Suhbat xulosasini yangila. Oldingi xulosa va yangi xabarlar beriladi. Natija: "
     f"o'zbekcha, {SUMMARY_MAX_CHARS} belgigacha, faqat keyingi suhbatga kerakli narsalar "
-    "(qaysi mavzular, nima kelishildi, nima ochiq qoldi). Salomlashish, ob-havo kabi "
-    "arzimas narsalarni tashla. Faqat xulosa matnini yoz."
+    "(qaysi mavzular, nima kelishildi, nima ochiq qoldi). Salomlashish, ob-havo, musiqa/ovoz "
+    "buyruqlari kabi arzimas narsalarni tashla. Bajarilgan, javob berilgan yoki o'tib ketgan "
+    "narsalarni (o'tgan sanadagi eslatma, yopilgan savol) olib tashla; yangi mavzu boshlansa "
+    "eskisini 1 jumlaga qisqartir. Faqat xulosa matnini yoz."
 )
 
 

@@ -126,6 +126,7 @@ TOOL_CATEGORIES = {
         "set_reminder", "list_reminders", "set_prayer_reminders",
         "set_daily_prayers", "set_morning_brief",
         "set_recurring_reminder", "list_recurring", "cancel_recurring", "cancel_reminder",
+        "add_date", "list_dates", "delete_date",
     ],
     "todo": ["add_todo", "list_todos", "complete_todo"],
     "pul": [
@@ -174,6 +175,10 @@ _DAY_OR_TIME = (
 )
 
 _FORCED_ROUTES = [
+    # Tug'ilgan kun — yillik sana ("eslab qol"dan OLDIN: aks holda bir martalik eslatma yoki
+    # faqat xotira bo'lib qolardi va kelasi yil eslatilmasdi).
+    (re.compile(r"tug.?ilgan\s*kun|yubiley|to.?y\s*kun|har\s*yili|yillik\s*sana|birthday",
+                re.IGNORECASE), ["esl"]),
     # Jonli sinov (2026-10-05) topgan: "eslab qol: tug'ilgan kun" eslatma bo'lib qolardi.
     (re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE), ["xot"]),
     (re.compile(r"haftalik", re.IGNORECASE), ["hisobot"]),
@@ -235,6 +240,7 @@ _QUICK_MUSIC_RE = re.compile(
 # Qisqa media/ovoz buyruqlari — modelsiz. Router "keyingisi"ga "ovoz pasaytirildi",
 # "volume up"ga "ovoz oshirildi" deb, hech narsa qilmasdan yozgan edi.
 _VOL_WORD = r"(ovoz|ovozni|ovozini|tovush|tovushni|volume|sound)"
+_SONG = r"(qo.?shiq\w*|musiqa\w*|music|song|track|trek\w*)"
 _QUICK_MEDIA = [
     # (regex, action, faqat yaqinda musiqa qo'yilgan bo'lsa)
     (re.compile(rf"{_VOL_WORD}\s*(\d{{1,3}})\s*(%|foiz)?(\s*(qil|qo.?y|ga))?"), "volume_set", False),
@@ -244,16 +250,36 @@ _QUICK_MEDIA = [
      "volume_down", False),
     (re.compile(rf"{_VOL_WORD}\s*(ni\s*)?(o.?chir\w*|mute)|mute|jim"), "mute", False),
     (re.compile(rf"{_VOL_WORD}\s*(ni\s*)?yoq\w*|unmute"), "unmute", False),
-    (re.compile(r"(musiqa|qo.?shiq)\w*\s*(ni\s*)?(to.?xtat\w*|pauza|pause)|pause"), "play_pause", False),
-    (re.compile(r"(keyingi|next)\s*(qo.?shiq|musiqa|trek)\w*|(qo.?shiq|musiqa)\w*\s*(ni\s*)?o.?tkaz\w*"),
+    (re.compile(rf"{_SONG}\s*(ni\s*)?(to.?xtat\w*|pauza|pause|davom\s*et\w*)|"
+                rf"(pause|stop|resume)\s*(the\s*)?{_SONG}?"), "play_pause", False),
+    # "Next music" — inglizcha "music" yo'q edi: modelga ketib, bir marta teskarisini qildi.
+    (re.compile(rf"(keyingi|next|skip)\s*(the\s*)?{_SONG}|{_SONG}\s*(ni\s*)?o.?tkaz\w*|skip"),
      "next", False),
-    (re.compile(r"(oldingi|previous)\s*(qo.?shiq|musiqa|trek)\w*"), "prev", False),
+    (re.compile(rf"(oldingi|previous|prev|last)\s*(the\s*)?{_SONG}"), "prev", False),
     # Ikki ma'noli qisqa so'zlar — faqat musiqa yaqinda boshqarilgan bo'lsa:
     (re.compile(r"keyingisi|keyingi|next|o.?tkaz|boshqasi"), "next", True),
-    (re.compile(r"oldingisi|oldingi|previous|orqaga"), "prev", True),
-    (re.compile(r"to.?xtat|pauza|davom(\s*et)?|play"), "play_pause", True),
+    (re.compile(r"oldingisi|oldingi|previous|prev|orqaga|back"), "prev", True),
+    (re.compile(r"to.?xtat|pauza|davom(\s*et\w*)?|play|resume|continue"), "play_pause", True),
 ]
 MUSIC_CONTEXT_SEC = 3 * 3600
+# Musiqa paytida xato yozilgan qisqa so'z ("Dsvom") modelga ketib, eski mavzuni
+# davom ettirgan edi — 1 harf farqli bo'lsa ham shu buyruq deb olamiz.
+_FUZZY_MEDIA = {
+    "davom": "play_pause", "to'xtat": "play_pause", "pauza": "play_pause",
+    "keyingisi": "next", "keyingi": "next", "next": "next",
+    "oldingisi": "prev", "oldingi": "prev", "previous": "prev",
+}
+
+
+def _edit1(a, b):
+    """a va b orasida ko'pi bilan 1 ta tahrir (almashtirish/qo'shish/o'chirish)."""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    if len(a) > len(b):
+        a, b = b, a
+    return any(a == b[:i] + b[i + 1:] for i in range(len(b)))
 
 
 def quick_media(text, chat_id):
@@ -271,6 +297,10 @@ def quick_media(text, chat_id):
         if m and (recent or not needs_music):
             value = int(m.group(2)) if action == "volume_set" else None
             return action, value
+    if recent and " " not in t and len(t) >= 4:
+        for word, action in _FUZZY_MEDIA.items():
+            if _edit1(t, word):
+                return action, None
     return None
 
 
@@ -316,13 +346,20 @@ def build_system(chat_id, user_text, router=False):
         f"Egang haqida: {mem_text}. "
     )
     if summ:
-        base += f"Oldingi suhbat: {summ} "
+        # Fon sifatida: "Davom"/"Yooo" kabi qisqa xabarga model xulosadagi eski "ochiq"
+        # mavzuni (Xitoy AI modellari ro'yxati) o'zicha davom ettirgan edi.
+        base += (f"Oldingi suhbat (faqat fon; egang o'zi tilga olmasa bu mavzularni "
+                 f"davom ettirma): {summ} ")
+    base += (
+        "Xabar qisqa, xato yozilgan yoki undov bo'lsa ('yooo', 'ok', 'dsvom') — eski mavzuni "
+        "davom ettirma: qisqa javob ber yoki nima demoqchiligini so'ra. "
+    )
     if router:
         # Token tejash: har xabarda yuboriladi — ixcham yozilgan (avval ~1050 token edi).
         base += (
             "\n\nTool kerak bo'lsa FAQAT <TOOL:kat> yoz (bir nechta: <TOOL:web,esl>). kat: "
             "web=qidiruv/ob-havo/kurs/URL; tg=Telegram chat/xabar/pin/chiqish/javobsizlar; "
-            "dayjest=kanal dayjesti; file=fayl/kod bajarish; esl=eslatma/namoz/brifing; "
+            "dayjest=kanal dayjesti; file=fayl/kod bajarish; esl=eslatma/namoz/brifing/tug'ilgan kunlar; "
             "todo=vazifalar; pul=xarajat/budjet; kal=kalendar/kun tartibi; "
             "buyruq=loyihada build/test/git pull, dev serverni ishga tushirish/to'xtatish; "
             "pc=kompyuter (ekran rasmi, holat, qulflash, o'chirish, link ochish, qo'shiq qo'yish, "

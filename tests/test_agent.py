@@ -142,7 +142,7 @@ def test_money_flow_null_field_salvaged(llm):
 # --- Jonli sinov (2026-10-05) topgan yo'nalish xatolari ---
 
 @pytest.mark.parametrize("text,cats", [
-    ("eslab qol: onamning tug'ilgan kuni 12-mart", ["xot"]),        # eslatma bo'lib qolardi
+    ("eslab qol: onamning tug'ilgan kuni 12-mart", ["esl"]),        # endi yillik sana (add_date)
     ("juma kuni soat 15:00 da ERP demo qo'sh", ["kal"]),            # vazifaga tushardi
     ("juma kungi ERP demoni o'chir", ["kal", "todo", "esl"]),       # "tool yo'q" derdi
     ("ertaga soat 9 da dori ichishni eslat", ["esl", "todo"]),      # eslatma o'z joyida

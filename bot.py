@@ -131,7 +131,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines += [
         "\n**Ma'lumotlar**",
         f"🧠 Xotirada: {c['memories']} ta fakt",
-        f"⏰ Kutilayotgan eslatma: {c['reminders']} · takroriy: {c['recurring']}",
+        f"⏰ Kutilayotgan eslatma: {c['reminders']} · takroriy: {c['recurring']} · yillik sana: {c['dates']}",
         f"✅ Ochiq vazifa: {c['todos']}",
         f"💸 Bugun sarflandi: {jtools._som(c['spent_today'])}",
         f"👤 Userbot: {'ulangan' if config.TG_API_ID else 'sozlanmagan'}",
@@ -456,6 +456,15 @@ async def cmd_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import commands
     text = await asyncio.to_thread(commands.list_text)
     await _send_md(context.bot, update.effective_chat.id, text)
+
+
+async def cmd_dates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/sanalar — tug'ilgan kunlar va yillik sanalar (modelsiz)."""
+    if not _authorized(update):
+        return
+    chat_id = update.effective_chat.id
+    text = await asyncio.to_thread(jtools.dates_text, chat_id)
+    await _send_md(context.bot, chat_id, text)
 
 
 async def cmd_screen(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1237,6 +1246,13 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             log.warning("Takroriy eslatma yuborilmadi (chat_id=%s)", chat_id)
 
+    # Yillik sanalar: ertaga/bugun (soat 9 dan keyin, PC yoqilganda ham yetib keladi)
+    for chat_id, text, year, occ, is_today in memory.due_dates():
+        try:
+            await _send_md(context.bot, chat_id, jtools.date_alert_text(text, year, occ, is_today))
+        except Exception:
+            log.warning("Yillik sana eslatmasi yuborilmadi (chat_id=%s)", chat_id)
+
     # Kompyuter o'chiq paytida o'tib ketganlar: yoqilganda hammasi birdaniga otilmasin.
     now = time.time()
     missed = {}
@@ -1271,6 +1287,7 @@ BOT_COMMANDS = [
     ("pc", "Kompyuter: holat va boshqaruv"),
     ("ekran", "Kompyuter ekrani rasmi"),
     ("buyruqlar", "Build/test/git pull/dev serverlar"),
+    ("sanalar", "Tug'ilgan kunlar va yillik sanalar"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1310,6 +1327,7 @@ WORD_COMMANDS = {
     "status": status, "holat": status, "statistika": status,
     "yordam": start, "help": start, "menyu": start,
     "pc": cmd_pc, "kompyuter": cmd_pc, "ekran": cmd_screen,
+    "sanalar": cmd_dates, "tug'ilgan kunlar": cmd_dates,
 }
 
 
@@ -1330,6 +1348,7 @@ def main():
     app.add_handler(CommandHandler("pc", cmd_pc))
     app.add_handler(CommandHandler("ekran", cmd_screen))
     app.add_handler(CommandHandler("buyruqlar", cmd_commands))
+    app.add_handler(CommandHandler("sanalar", cmd_dates))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(

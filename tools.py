@@ -237,6 +237,39 @@ TOOLS = [
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
+        "name": "add_date",
+        "description": (
+            "YILLIK sana qo'shadi (tug'ilgan kun, yubiley, to'y kuni) — har yili bir kun oldin "
+            "va o'sha kuni ertalab eslatadi. 'tug'ilgan kuni' aytilsa DOIM shu (set_reminder emas). "
+            "text: kimniki/nima (masalan 'Akamning tug'ilgan kuni'); year: tug'ilgan yili "
+            "aytilgan bo'lsa (yoshini hisoblash uchun), aks holda null."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "month": {"type": "number"},
+                "day": {"type": "number"},
+                "year": {"type": ["number", "null"]},
+            },
+            "required": ["text", "month", "day"],
+        },
+    },
+    {
+        "name": "list_dates",
+        "description": "Yillik sanalar (tug'ilgan kunlar) ro'yxati — eng yaqinidan, raqamli.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "delete_date",
+        "description": "Yillik sanani o'chiradi: number=list_dates ro'yxatidagi raqam.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"number": {"type": "number"}},
+            "required": ["number"],
+        },
+    },
+    {
         "name": "cancel_recurring",
         "description": "Takroriy eslatmani o'chiradi: number=takroriylar ro'yxatidagi raqam yoki all=true (hammasi)",
         "input_schema": {
@@ -673,6 +706,38 @@ PENDING_FILES = []  # [{chat_id, path, caption}]
 # Hafta kunlari (0=Dushanba ... 6=Yakshanba — Python weekday tartibi)
 _DAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
 
+_MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust",
+           "sentyabr", "oktyabr", "noyabr", "dekabr"]
+
+
+def date_label(occ, today=None):
+    """'15-oktyabr (Payshanba, 10 kundan keyin)'."""
+    today = today or datetime.date.today()
+    n = (occ - today).days
+    when = "bugun" if n == 0 else "ertaga" if n == 1 else f"{n} kundan keyin"
+    return f"{occ.day}-{_MONTHS[occ.month - 1]} ({_DAYS[occ.weekday()]}, {when})"
+
+
+def _age_note(year, occ):
+    return f" — {occ.year - year} yosh" if year else ""
+
+
+def dates_text(chat_id, today=None):
+    rows = memory.list_dates(chat_id, today)
+    if not rows:
+        return ("🎂 Yillik sana yo'q. Qo'shish: «akamning tug'ilgan kuni 15-oktyabr» deb yoz.")
+    lines = ["🎂 **Yillik sanalar**"]
+    for i, (_id, text, _m, _d, year, occ) in enumerate(rows, 1):
+        lines.append(f"{i}. {text} — {date_label(occ, today)}{_age_note(year, occ)}")
+    return "\n".join(lines)
+
+
+def date_alert_text(text, year, occ, is_today):
+    if is_today:
+        return f"🎉 **Bugun: {text}**{_age_note(year, occ)}\nTabriklashni unutma!"
+    return f"🎂 **Ertaga: {text}**{_age_note(year, occ)}\nTabrik yoki sovg'ani o'ylab qo'y."
+
+
 # Namoz nomlari: Aladhan (inglizcha) -> o'zbekcha
 PRAYERS = [
     ("Fajr", "Bomdod"),
@@ -1059,6 +1124,12 @@ def weekly_report_text(chat_id, today=None, previous=False):
                 ]
         except Exception as e:
             out.append(f"\n📅 Kalendarni o'qib bo'lmadi: {str(e)[:60]}")
+
+    # Yillik sanalar — sovg'a o'ylashga vaqt qolsin
+    soon = [r for r in memory.list_dates(chat_id, today) if (r[5] - today).days <= 7]
+    if soon:
+        out.append("\n🎂 **Yaqin sanalar**")
+        out += [f"• {text} — {date_label(occ, today)}" for _i, text, _m, _d, _y, occ in soon]
 
     if len(out) == 1:
         out.append("Bu hafta hali hech narsa yozilmagan.")
@@ -1521,6 +1592,28 @@ def execute_tool(name, tool_input, chat_id=None):
                 when = _DAYS[dow] if dow is not None else "har kuni"
                 out.append(f"{i}. {when} {h:02d}:{m:02d} — {text}")
             return "\n".join(out)
+
+        if name == "add_date":
+            month, day = int(tool_input["month"]), int(tool_input["day"])
+            year = tool_input.get("year")
+            year = int(year) if year else None
+            text = tool_input["text"].strip()
+            try:
+                memory.add_date(chat_id, text, month, day, year)
+            except ValueError:
+                return f"Bunday sana yo'q: {day}.{month}."
+            occ = memory.next_occurrence(month, day, datetime.date.today())
+            return FINAL + (
+                f"🎂 Yillik sana qo'shildi: **{text}** — {date_label(occ)}\n"
+                f"Har yili bir kun oldin va o'sha kuni ertalab eslataman."
+            )
+
+        if name == "list_dates":
+            return FINAL + dates_text(chat_id)
+
+        if name == "delete_date":
+            t = memory.delete_date(chat_id, int(tool_input["number"]))
+            return f"🗑 O'chirildi: {t}" if t else "Bunday raqamli sana yo'q."
 
         if name == "cancel_recurring":
             if tool_input.get("all"):

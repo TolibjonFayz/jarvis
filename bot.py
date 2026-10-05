@@ -95,6 +95,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Kod yozaman, fikr aytaman, fayllar bilan ishlayman.\n"
         "/dayjest — kanallar xulosasi · /javobsiz — kim javob kutyapti · /hafta — haftalik hisobot\n"
         "/status — holat, tokenlar · /zaxira — baza nusxasi · /reset — suhbatni tozalash\n"
+        "/pc — kompyuter holati va boshqaruvi · /ekran — ekran rasmi\n"
         "/xato — oxirgi javob noto'g'ri bo'lsa belgilash (masalan: /xato sanani adashtirdi)"
     )
 
@@ -186,7 +187,18 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _show_pending_sends(update: Update, chat_id):
-    """Tayyorlangan (hali yuborilmagan) Telegram xabarlar uchun tasdiq tugmalari."""
+    """Tayyorlangan (hali yuborilmagan) Telegram xabarlar uchun tasdiq tugmalari
+    va tool navbatga qo'ygan fayllar (ekran rasmi)."""
+    for item in [f for f in jtools.PENDING_FILES if f["chat_id"] == chat_id]:
+        jtools.PENDING_FILES.remove(item)
+        try:
+            with open(item["path"], "rb") as fh:
+                await update.effective_message.reply_photo(fh, caption=item["caption"])
+        finally:
+            try:
+                os.remove(item["path"])
+            except OSError:
+                pass
     for sid, p in list(jtools.PENDING_SENDS.items()):
         if p["chat_id"] != chat_id or p["shown"]:
             continue
@@ -195,6 +207,7 @@ async def _show_pending_sends(update: Update, chat_id):
         yes_label, text = {
             "leave": ("🚪 Chiqish", f"🚪 {p['to_name']} — chiqilsinmi?"),
             "gcal_delete": ("🗑 O'chirish", f"🗑 Kalendardan o'chirilsinmi?\n{p['to_name']}"),
+            "pc_power": (p["to_name"], f"{p['to_name']} — rostdan ham? (FRIDAY ham to'xtaydi)"),
         }.get(kind, (
             "✅ Yuborish",
             f"📨 Qabul qiluvchi: {p['to_name']}\n\n\"{p['text']}\"\n\nYuborilsinmi?",
@@ -397,6 +410,110 @@ _UNMUTE = ChatPermissions(
 )
 
 
+# --- Kompyuter boshqaruvi (/pc, /ekran, pc:* tugmalar) ---
+
+def _pc_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📸 Ekran", callback_data="pc:screen"),
+         InlineKeyboardButton("🔒 Qulfla", callback_data="pc:lock"),
+         InlineKeyboardButton("🔄 Yangila", callback_data="pc:status")],
+        [InlineKeyboardButton("😴 Uxlat", callback_data="pc:ask:sleep"),
+         InlineKeyboardButton("⏻ O'chir", callback_data="pc:ask:shutdown"),
+         InlineKeyboardButton("🔁 Restart", callback_data="pc:ask:restart")],
+    ])
+
+
+async def cmd_pc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        return
+    import pc
+    text = await asyncio.to_thread(pc.status_text)
+    await update.effective_message.reply_text(
+        fmt.to_html(text), parse_mode=ParseMode.HTML, reply_markup=_pc_keyboard()
+    )
+
+
+async def _send_screenshot(message):
+    import pc
+    path, black = await asyncio.to_thread(pc.screenshot)
+    try:
+        if black:
+            await message.reply_text("🖥 Ekran qora — kompyuter qulflangan yoki monitor uxlagan.")
+        else:
+            with open(path, "rb") as fh:
+                await message.reply_photo(fh, caption="🖥 Kompyuter ekrani")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+async def cmd_screen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        return
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO)
+    await _send_screenshot(update.effective_message)
+
+
+async def _run_power(q, action):
+    """Tasdiqlangan quvvat amali; o'chirish/restartga «Bekor qilish» tugmasi."""
+    import pc
+    try:
+        result = await asyncio.to_thread(pc.power, action)
+    except Exception as e:
+        log.exception("Quvvat amalida xato")
+        await q.edit_message_text(f"Xato: bajarilmadi — {e}")
+        return
+    log.info("Quvvat amali bajarildi: %s", action)
+    kb = None
+    if action in ("shutdown", "restart"):
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Bekor qilish", callback_data="pc:cancel")]])
+    await q.edit_message_text(result, reply_markup=kb)
+
+
+async def _on_pc_button(update: Update, context: ContextTypes.DEFAULT_TYPE, data):
+    import pc
+    q = update.callback_query
+    parts = data.split(":")
+    cmd = parts[1]
+    if cmd == "screen":
+        await q.answer("📸")
+        await _send_screenshot(q.message)
+    elif cmd == "lock":
+        await asyncio.to_thread(pc.lock)
+        await q.answer("🔒 Qulflandi")
+    elif cmd == "status":
+        text = await asyncio.to_thread(pc.status_text)
+        await q.answer()
+        try:
+            await q.edit_message_text(fmt.to_html(text), parse_mode=ParseMode.HTML, reply_markup=_pc_keyboard())
+        except BadRequest:
+            pass  # o'zgarmagan bo'lsa Telegram rad etadi
+    elif cmd == "ask" and len(parts) == 3 and parts[2] in pc.POWER_LABELS:
+        action = parts[2]
+        await q.answer()
+        await q.message.reply_text(
+            f"{pc.POWER_LABELS[action]} — rostdan ham? (FRIDAY ham to'xtaydi)",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(pc.POWER_LABELS[action], callback_data=f"pc:do:{action}"),
+                InlineKeyboardButton("❌ Bekor", callback_data="pc:no"),
+            ]]),
+        )
+    elif cmd == "do" and len(parts) == 3 and parts[2] in pc.POWER_LABELS:
+        await q.answer()
+        await _run_power(q, parts[2])
+    elif cmd == "no":
+        await q.answer()
+        await q.edit_message_text("❌ Bekor qilindi — kompyuter tegilmadi.")
+    elif cmd == "cancel":
+        result = await asyncio.to_thread(pc.cancel_power)
+        await q.answer()
+        await q.edit_message_text(result)
+    else:
+        await q.answer()
+
+
 def _forward_keyboard(sid):
     import forward
     item = forward.PENDING.get(sid) or {"text": "", "done": set()}
@@ -469,6 +586,13 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _on_forward_button(update, context, data)
         return
 
+    if data.startswith("pc:"):
+        if not _authorized(update):
+            await q.answer()
+            return
+        await _on_pc_button(update, context, data)
+        return
+
     # --- Kirish CAPTCHA: tugmani yangi a'zoning O'ZI bosishi kerak ---
     if data.startswith("cap:"):
         try:
@@ -521,6 +645,9 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 import gcal
                 await asyncio.to_thread(gcal.delete_event, p["to_id"])
                 result = f"Kalendardan o'chirildi: {p['to_name']}"
+            elif kind == "pc_power":
+                await _run_power(q, p["to_id"])
+                return
             else:
                 result = await asyncio.to_thread(userbot.send_message, p["to_id"], p["text"])
             await q.edit_message_text(f"✅ {result}")
@@ -531,6 +658,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text({
             "leave": f"❌ Bekor qilindi ({p['to_name']} da qolding).",
             "gcal_delete": f"❌ Bekor qilindi (tadbir o'chirilmadi).",
+            "pc_power": "❌ Bekor qilindi — kompyuter tegilmadi.",
         }.get(kind, f"❌ Bekor qilindi ({p['to_name']} ga yuborilmadi)."))
 
 
@@ -1131,6 +1259,8 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
 
 BOT_COMMANDS = [
     ("status", "Holat va token sarfi"),
+    ("pc", "Kompyuter: holat va boshqaruv"),
+    ("ekran", "Kompyuter ekrani rasmi"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1169,6 +1299,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 WORD_COMMANDS = {
     "status": status, "holat": status, "statistika": status,
     "yordam": start, "help": start, "menyu": start,
+    "pc": cmd_pc, "kompyuter": cmd_pc, "ekran": cmd_screen,
 }
 
 
@@ -1186,6 +1317,8 @@ def main():
     app.add_handler(CommandHandler("zaxira", cmd_backup))
     app.add_handler(CommandHandler("hafta", cmd_weekly))
     app.add_handler(CommandHandler("xato", cmd_feedback))
+    app.add_handler(CommandHandler("pc", cmd_pc))
+    app.add_handler(CommandHandler("ekran", cmd_screen))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(

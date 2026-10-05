@@ -14,6 +14,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 
 | Soha | Misol |
 |---|---|
+| 🖥 Kompyuter | `/pc` — holat (CPU, xotira, disk) + tugmalar: 📸 ekran, 🔒 qulflash, 😴 uxlatish, ⏻ o'chirish, 🔁 restart (quvvat amallari tasdiq bilan, o'chirish 60 s kechikadi — bekor qilsa bo'ladi); link yuborsang kompyuterda ochadi |
 | 📨 Forward → amal | Istalgan xabarni forward qil → [📅 Kalendar] [⏰ Eslatma] [✅ Vazifa] [💸 Xarajat] [📝 Xulosa], eng mosi ⭐ bilan (tugma bosilmaguncha model chaqirilmaydi) |
 | 💬 Suhbat, kod | «Python'da fayl o'qish kodini yoz», «buni tushuntir» |
 | 🧠 Aqlli xotira | O'zi eslab qoladi. «men haqimda nima bilasan?», «…ni unut» |
@@ -33,7 +34,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 🎤 Ovoz | Ovozli xabarni tushunadi, javobni ovoz bilan ham beradi |
 | 🛡 Guruh moderatsiyasi | So'kinish, 18+ rasm/video, spamer, CAPTCHA, xavfli linklar |
 
-**Buyruqlar:** `/start` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/hafta` (haftalik hisobot) · `/zaxira` · `/xato [izoh]` (noto'g'ri javobni belgilash) · `/reset`
+**Buyruqlar:** `/start` · `/pc` · `/ekran` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/hafta` (haftalik hisobot) · `/zaxira` · `/xato [izoh]` (noto'g'ri javobni belgilash) · `/reset`
 
 ---
 
@@ -103,6 +104,7 @@ brain.py      Aqlli xotira: faktlarni ajratish, suhbat xulosasi
 memory.py     SQLite (data/jarvis.db): tarix, faktlar, xarajat, budjet, kanallar...
 digest.py     Kanallar dayjesti + javobsiz xabarlar
 forward.py    Forward qilingan xabar -> tugma bilan amal
+pc.py         Kompyuter: ekran, qulf, quvvat, holat, link
 projects.py   Git loyihalar (faqat o'qish)
 gcal.py       Google Calendar
 vision.py     Gemini rasm ko'rish

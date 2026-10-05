@@ -135,6 +135,7 @@ TOOL_CATEGORIES = {
     "xot": ["remember", "recall", "forget"],
     "loyiha": ["projects_list", "project_status", "project_changes"],
     "kal": ["agenda", "calendar_events", "calendar_add", "calendar_delete"],
+    "pc": ["pc_screenshot", "pc_status", "pc_lock", "pc_power", "pc_open_url"],
     "hisobot": ["weekly_report", "set_weekly_report"],
 }
 
@@ -171,6 +172,8 @@ _FORCED_ROUTES = [
     (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
     (re.compile(r"loyiha|\brepo|commit|\bgit\b|branch|nima qildim", re.IGNORECASE), ["loyiha"]),
     (re.compile(r"kalendar|calendar|taqvim|uchrashuv|meeting|tadbir|\bmajlis", re.IGNORECASE), ["kal"]),
+    # Oxirida: "kompyuterda nima qildim" yuqorida loyihaga ketadi.
+    (re.compile(r"ekran|skrinshot|screenshot|kompyuter|noutbuk|\bpc\b|qulfla|uxlat", re.IGNORECASE), ["pc"]),
 ]
 
 # Tool loop'da: javob amal bajarilganini aytsa, shunday tool chaqirilgan bo'lishi SHART.
@@ -182,6 +185,7 @@ _ACTION_CLAIM_RE = re.compile(
 _MUTATING = (
     "add_", "set_", "cancel_", "complete_", "delete_", "digest_add", "digest_remove",
     "calendar_add", "calendar_delete", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
+    "pc_lock", "pc_power", "pc_open_url",
 )
 
 # Egasi biror narsani O'ZGARTIRISHni so'rayapti — ro'yxat ko'rish oraliq qadam bo'ladi.
@@ -243,12 +247,14 @@ def build_system(chat_id, user_text, router=False):
             "web=qidiruv/ob-havo/kurs/URL; tg=Telegram chat/xabar/pin/chiqish/javobsizlar; "
             "dayjest=kanal dayjesti; file=fayl/kod bajarish; esl=eslatma/namoz/brifing; "
             "todo=vazifalar; pul=xarajat/budjet; kal=kalendar/kun tartibi; "
+            "pc=kompyuter (ekran rasmi, holat, qulflash, o'chirish, link ochish); "
             "loyiha=git loyihalar (ERP, Climavent, bilim manba...); "
             "xot=faqat 'eslab qol/unut/men haqimda nima bilasan'. "
             "Dolzarb raqamni (kurs, ob-havo, narx, yangilik) o'zingdan aytma — <TOOL:web>. "
             "Imkoniyatlaring faqat: suhbat/kod, fayl, xotira, internet, ob-havo, kurs, eslatma, "
             "namoz, brifing, todo, xarajat/budjet, kalendar, Telegram, dayjest, loyihalar, ovoz, "
-            "rasm, hujjat, guruh moderatsiyasi. Aks holda to'g'ridan-to'g'ri qisqa javob ber."
+            "rasm, video, hujjat, kompyuter boshqaruvi, guruh moderatsiyasi. "
+            "Aks holda to'g'ridan-to'g'ri qisqa javob ber."
         )
     return base
 

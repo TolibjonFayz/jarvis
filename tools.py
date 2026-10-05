@@ -497,6 +497,39 @@ TOOLS = [
         },
     },
     {
+        "name": "pc_screenshot",
+        "description": "Kompyuter ekranining rasmini egasiga yuboradi",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "pc_status",
+        "description": "Kompyuter holati: CPU, xotira, disk, qancha vaqtdan beri yoqiq",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "pc_lock",
+        "description": "Kompyuter ekranini qulflaydi",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "pc_power",
+        "description": "Kompyuterni uxlatish/o'chirish/qayta yoqishga tayyorlaydi — egasi TUGMA bilan tasdiqlaydi",
+        "input_schema": {
+            "type": "object",
+            "properties": {"action": {"type": "string", "enum": ["sleep", "shutdown", "restart"]}},
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "pc_open_url",
+        "description": "Havolani (http/https) kompyuter brauzerida ochadi",
+        "input_schema": {
+            "type": "object",
+            "properties": {"url": {"type": "string"}},
+            "required": ["url"],
+        },
+    },
+    {
         "name": "unanswered",
         "description": "Shaxsiy Telegram: kimlar javob kutyapti (javob berilmagan shaxsiy xabarlar)",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -566,6 +599,8 @@ DIGEST_HOUR = 21
 import itertools
 _send_seq = itertools.count(1)
 PENDING_SENDS = {}
+# Tool tayyorlagan fayllar (ekran rasmi) — bot javobdan keyin yuboradi va o'chiradi.
+PENDING_FILES = []  # [{chat_id, path, caption}]
 
 # Hafta kunlari (0=Dushanba ... 6=Yakshanba — Python weekday tartibi)
 _DAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
@@ -1256,6 +1291,43 @@ def execute_tool(name, tool_input, chat_id=None):
                 "ko'rsatiladi — sen faqat qisqa qilib 'tayyorladim, tugma bilan "
                 "tasdiqlang' de. Tasdiq so'ramа, qayta tayyorlama."
             )
+
+        if name == "pc_screenshot":
+            import pc
+            path, black = pc.screenshot()
+            if black:
+                os.remove(path)
+                return FINAL + "🖥 Ekran qora — kompyuter qulflangan yoki monitor uxlagan."
+            PENDING_FILES.append({"chat_id": chat_id, "path": path, "caption": "🖥 Kompyuter ekrani"})
+            return FINAL + "📸 Ekran rasmi:"
+
+        if name == "pc_status":
+            import pc
+            return FINAL + pc.status_text()
+
+        if name == "pc_lock":
+            import pc
+            pc.lock()
+            return FINAL + "🔒 Kompyuter qulflandi."
+
+        if name == "pc_power":
+            import pc
+            action = tool_input.get("action")
+            if action not in pc.POWER_LABELS:
+                return "Noma'lum amal (sleep/shutdown/restart)."
+            sid = next(_send_seq)
+            PENDING_SENDS[sid] = {
+                "kind": "pc_power", "chat_id": chat_id, "to_id": action,
+                "to_name": pc.POWER_LABELS[action], "text": "", "shown": False,
+            }
+            return FINAL + f"{pc.POWER_LABELS[action]} — tasdiqlang 👇"
+
+        if name == "pc_open_url":
+            import pc
+            try:
+                return FINAL + pc.open_url(tool_input.get("url", ""))
+            except ValueError as e:
+                return FINAL + f"❌ {e}"
 
         if name in ("tg_leave", "tg_pin"):
             import userbot

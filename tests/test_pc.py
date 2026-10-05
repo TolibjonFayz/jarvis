@@ -101,3 +101,68 @@ def test_pc_routes(text, cats):
 def test_pc_word_commands():
     import bot
     assert bot.WORD_COMMANDS["pc"] is bot.cmd_pc and bot.WORD_COMMANDS["ekran"] is bot.cmd_screen
+
+
+# --- Musiqa va media (2026-10-05: "qo'shiq qo'y" -> "qila olmayman" degan edi) ---
+
+def test_play_music_opens_first_video(monkeypatch, calls):
+    monkeypatch.setattr(pc, "find_youtube", lambda q: (f"https://www.youtube.com/watch?v=X_{q}", True))
+    assert "qo'yildi: Ummon" in pc.play_music("Ummon")
+    assert calls == [("open", "https://www.youtube.com/watch?v=X_Ummon")]
+
+
+def test_play_music_default_query(monkeypatch, calls):
+    seen = []
+    monkeypatch.setattr(pc, "find_youtube", lambda q: seen.append(q) or ("https://y", True))
+    pc.play_music("")
+    assert seen == [pc.DEFAULT_MUSIC]
+
+
+def test_media_keys(monkeypatch):
+    pressed = []
+    monkeypatch.setattr(pc.ctypes, "windll", NS(user32=NS(keybd_event=lambda vk, s, f, e: pressed.append((vk, f)))))
+    assert "Pauza" in pc.media("play_pause")
+    assert pressed == [(0xB3, 0), (0xB3, 2)]
+    pressed.clear()
+    pc.media("volume_up")
+    assert len(pressed) == 10  # 5 bosish (~10%)
+    with pytest.raises(ValueError):
+        pc.media("format")
+
+
+@pytest.mark.parametrize("text", ["Qo'shiq qo'y", "musiqani to'xtat", "youtube'da Ummon qo'y", "ovozni balandlat"])
+def test_music_routes(text):
+    assert agent.forced_categories(text) == ["pc"]
+
+
+def test_required_tool_but_model_asks_question(llm):
+    # Model savol bermoqchi edi -> Groq "required" ni rad etdi -> tool'siz qayta so'ralib,
+    # "kompyuteringizni boshqara olmayman" deyardi. Endi modelning o'z savoli qaytadi.
+    class AskInstead(Exception):
+        body = {"error": {"code": "tool_use_failed", "failed_generation": "Qaysi qo'shiqni qo'yay?"}}
+
+        def __str__(self):
+            return "Error code: 400 - tool_use_failed"
+
+    llm(AskInstead())
+    out = agent._tool_loop(CHAT, [], "qo'shiq qo'y", ["pc"], require=True)
+    assert out == "Qaysi qo'shiqni qo'yay?"
+
+
+@pytest.mark.parametrize("text,quick", [
+    ("Qo'shiq qo'y", True), ("musiqa och", True), ("bir qo'shiq qo'yib ber", True),
+    ("qo'shiq qo'y bro", True), ("Ummon qo'shig'ini qo'y", False), ("qo'shiq yoz", False),
+])
+def test_quick_music(text, quick):
+    assert bool(agent._QUICK_MUSIC_RE.fullmatch(text)) == quick
+
+
+def test_quick_music_skips_model(monkeypatch, llm):
+    script = llm()  # model chaqirilsa — AssertionError
+    monkeypatch.setattr(pc, "play_music", lambda q="": "🎵 qo'yildi")
+    assert agent.respond(CHAT, "Qo'shiq qo'y") == "🎵 qo'yildi"
+    assert script.requests == []
+
+
+def test_song_name_form_routes_to_pc():
+    assert agent.forced_categories("Ummon guruhining Yolg'izim qo'shig'ini qo'y") == ["pc"]

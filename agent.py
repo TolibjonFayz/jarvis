@@ -135,7 +135,10 @@ TOOL_CATEGORIES = {
     "xot": ["remember", "recall", "forget"],
     "loyiha": ["projects_list", "project_status", "project_changes"],
     "kal": ["agenda", "calendar_events", "calendar_add", "calendar_delete"],
-    "pc": ["pc_screenshot", "pc_status", "pc_lock", "pc_power", "pc_open_url"],
+    "pc": [
+        "pc_screenshot", "pc_status", "pc_lock", "pc_power", "pc_open_url",
+        "pc_play_music", "pc_media",
+    ],
     "hisobot": ["weekly_report", "set_weekly_report"],
 }
 
@@ -173,7 +176,8 @@ _FORCED_ROUTES = [
     (re.compile(r"loyiha|\brepo|commit|\bgit\b|branch|nima qildim", re.IGNORECASE), ["loyiha"]),
     (re.compile(r"kalendar|calendar|taqvim|uchrashuv|meeting|tadbir|\bmajlis", re.IGNORECASE), ["kal"]),
     # Oxirida: "kompyuterda nima qildim" yuqorida loyihaga ketadi.
-    (re.compile(r"ekran|skrinshot|screenshot|kompyuter|noutbuk|\bpc\b|qulfla|uxlat", re.IGNORECASE), ["pc"]),
+    (re.compile(r"ekran|skrinshot|screenshot|kompyuter|noutbuk|\bpc\b|qulfla|uxlat|"
+                r"qo.?shi[qg]|musiqa|music|youtube|ovozni|pauza|keyingi qo", re.IGNORECASE), ["pc"]),
 ]
 
 # Tool loop'da: javob amal bajarilganini aytsa, shunday tool chaqirilgan bo'lishi SHART.
@@ -185,7 +189,7 @@ _ACTION_CLAIM_RE = re.compile(
 _MUTATING = (
     "add_", "set_", "cancel_", "complete_", "delete_", "digest_add", "digest_remove",
     "calendar_add", "calendar_delete", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
-    "pc_lock", "pc_power", "pc_open_url",
+    "pc_lock", "pc_power", "pc_open_url", "pc_play_music", "pc_media",
 )
 
 # Egasi biror narsani O'ZGARTIRISHni so'rayapti — ro'yxat ko'rish oraliq qadam bo'ladi.
@@ -196,6 +200,14 @@ _MUTATE_INTENT_RE = re.compile(
 )
 
 _REMEMBER_RE = re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE)
+
+
+# "qo'shiq qo'y" — nima qo'yish aytilmagan: model "qaysi qo'shiq?" deb so'rab o'tirardi
+# (tool nomini ham aytib). Bunday qisqa buyruq modelsiz — standart mix.
+_QUICK_MUSIC_RE = re.compile(
+    r"\s*(bir\s+|biror\s+)?(qo.?shiq|musiqa|music)\s*(qo.?y|och|chal|yoq)(ib\s*ber)?\s*(chi|bro)?[\s!.?]*",
+    re.IGNORECASE,
+)
 
 
 def forced_categories(text):
@@ -234,7 +246,8 @@ def build_system(chat_id, user_text, router=False):
         "ozgina hazil). Doim o'zbekcha, qisqa va foydali. "
         f"Hozir: {now}. "
         "Format: `kod`, ```blok```, '- ' ro'yxat, **qalin** kam; jadval yo'q. "
-        "Bilmaganingni to'qima; tool'siz 'bajardim' dema. Faktlarni fonda o'zing eslab "
+        "Bilmaganingni to'qima; tool'siz 'bajardim' dema; tool nomlarini egangga aytma. "
+        "Faktlarni fonda o'zing eslab "
         "qolasan — 'eslab qol deng' deb so'rama. "
         f"Egang haqida: {mem_text}. "
     )
@@ -247,7 +260,8 @@ def build_system(chat_id, user_text, router=False):
             "web=qidiruv/ob-havo/kurs/URL; tg=Telegram chat/xabar/pin/chiqish/javobsizlar; "
             "dayjest=kanal dayjesti; file=fayl/kod bajarish; esl=eslatma/namoz/brifing; "
             "todo=vazifalar; pul=xarajat/budjet; kal=kalendar/kun tartibi; "
-            "pc=kompyuter (ekran rasmi, holat, qulflash, o'chirish, link ochish); "
+            "pc=kompyuter (ekran rasmi, holat, qulflash, o'chirish, link ochish, qo'shiq qo'yish, "
+            "pauza/ovoz); "
             "loyiha=git loyihalar (ERP, Climavent, bilim manba...); "
             "xot=faqat 'eslab qol/unut/men haqimda nima bilasan'. "
             "Dolzarb raqamni (kurs, ob-havo, narx, yangilik) o'zingdan aytma — <TOOL:web>. "
@@ -308,6 +322,16 @@ def _salvaged_calls(err):
                 args = {}
         calls.append((it["name"], args if isinstance(args, dict) else {}))
     return calls
+
+
+def _failed_text(err):
+    """tool_use_failed ichidagi oddiy MATN javob (JSON tool chaqiruvi emas) yoki ''."""
+    body = getattr(err, "body", None)
+    gen = ((body or {}).get("error") or {}).get("failed_generation") if isinstance(body, dict) else ""
+    gen = (gen or "").strip()
+    if not gen or gen.startswith(("{", "[", "<")):
+        return ""
+    return _clean(gen)
 
 
 def _money_flow(chat_id, user_text):
@@ -401,17 +425,27 @@ def _tool_loop(chat_id, history, user_text, cats, require=False):
                 # Model tool'ni buzib chaqirdi — niyati xato javobida bor, o'shani bajaramiz.
                 # (Avval tool'siz qayta so'ralardi; model yana tool chaqirib, bot yiqilardi.)
                 salv = [(n, a) for n, a in _salvaged_calls(e) if n in allowed]
+                said = _failed_text(e)
                 if salv:
                     calls = [(f"salv{step}_{i}", n, json.dumps(a)) for i, (n, a) in enumerate(salv)]
                     content = ""
+                elif said:
+                    # tool_choice=required, model esa SAVOL bermoqchi edi ("qaysi qo'shiq?").
+                    # Avval tool'siz qayta so'ralardi -> tool'siz model "kompyuteringizni
+                    # boshqara olmayman" deb yolg'on aytardi. Modelning o'z gapini beramiz.
+                    calls, content = [], said
                 else:
                     try:
-                        content = _create(messages=messages, max_tokens=MAX_TOKENS).choices[0].message.content
+                        # Tool'lar BILAN (auto) — tool'siz so'rasak, model imkoniyati yo'q deb o'ylaydi.
+                        retry = dict(tool_kw, tool_choice="auto") if tool_kw else {}
+                        msg = _create(messages=messages, max_tokens=MAX_TOKENS, **retry).choices[0].message
+                        content = msg.content
+                        calls = [(tc.id, tc.function.name, tc.function.arguments) for tc in msg.tool_calls or []]
                     except Exception as e2:
                         if "tool_use_failed" not in str(e2):
                             raise
                         content = "⚠️ So'rovni tushunishda xato bo'ldi. Boshqacharoq aytib ko'r."
-                    calls = []
+                        calls = []
             elif "output_parse_failed" in s:
                 # Model mulohazasida adashdi — bir marta qayta urinamiz.
                 msg = _create(messages=messages, max_tokens=MAX_TOKENS, **tool_kw).choices[0].message
@@ -499,6 +533,12 @@ def respond(chat_id, user_text, route_text=None):
             memory.add_message(chat_id, "assistant", final)
             brain.after_turn(chat_id, HISTORY_WINDOW)
             return final
+
+    if _QUICK_MUSIC_RE.fullmatch(route):
+        final = execute_tool("pc_play_music", {}, chat_id).replace(FINAL, "")
+        memory.add_message(chat_id, "user", user_text)
+        memory.add_message(chat_id, "assistant", final)
+        return final
 
     forced = forced_categories(route)
     if forced:

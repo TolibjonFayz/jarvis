@@ -521,6 +521,29 @@ TOOLS = [
         },
     },
     {
+        "name": "pc_play_music",
+        "description": (
+            "Kompyuterda YouTube'da qo'shiq/musiqa qo'yadi (birinchi natija). query=qo'shiq yoki "
+            "ijrochi; aytilmasa bo'sh qoldir — standart mix qo'yiladi (so'rab o'tirma)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": ["string", "null"]}},
+            "required": [],
+        },
+    },
+    {
+        "name": "pc_media",
+        "description": "Kompyuterdagi pleer: play_pause, next, prev, volume_up, volume_down, mute",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["play_pause", "next", "prev", "volume_up", "volume_down", "mute"]},
+            },
+            "required": ["action"],
+        },
+    },
+    {
         "name": "pc_open_url",
         "description": "Havolani (http/https) kompyuter brauzerida ochadi",
         "input_schema": {
@@ -1321,6 +1344,17 @@ def execute_tool(name, tool_input, chat_id=None):
                 "to_name": pc.POWER_LABELS[action], "text": "", "shown": False,
             }
             return FINAL + f"{pc.POWER_LABELS[action]} — tasdiqlang 👇"
+
+        if name == "pc_play_music":
+            import pc
+            return FINAL + pc.play_music(tool_input.get("query") or "")
+
+        if name == "pc_media":
+            import pc
+            try:
+                return FINAL + pc.media(tool_input.get("action"))
+            except ValueError as e:
+                return f"❌ {e}"
 
         if name == "pc_open_url":
             import pc

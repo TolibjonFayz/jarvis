@@ -14,7 +14,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 
 | Soha | Misol |
 |---|---|
-| 🖥 Kompyuter | `/pc` — holat (CPU, xotira, disk) + tugmalar: 📸 ekran, 🔒 qulflash, 😴 uxlatish, ⏻ o'chirish, 🔁 restart (quvvat amallari tasdiq bilan, o'chirish 60 s kechikadi — bekor qilsa bo'ladi); link yuborsang kompyuterda ochadi |
+| 🖥 Kompyuter | `/pc` — holat (CPU, xotira, disk) + tugmalar: 📸 ekran, 🔒 qulflash, 😴 uxlatish, ⏻ o'chirish, 🔁 restart (quvvat amallari tasdiq bilan, o'chirish 60 s kechikadi — bekor qilsa bo'ladi); link yuborsang kompyuterda ochadi; 🎵 «qo'shiq qo'y», «Ummon Yolg'izim qo'y» (YouTube), «to'xtat», «keyingisi», «ovozni balandlat» |
 | 📨 Forward → amal | Istalgan xabarni forward qil → [📅 Kalendar] [⏰ Eslatma] [✅ Vazifa] [💸 Xarajat] [📝 Xulosa], eng mosi ⭐ bilan (tugma bosilmaguncha model chaqirilmaydi) |
 | 💬 Suhbat, kod | «Python'da fayl o'qish kodini yoz», «buni tushuntir» |
 | 🧠 Aqlli xotira | O'zi eslab qoladi. «men haqimda nima bilasan?», «…ni unut» |

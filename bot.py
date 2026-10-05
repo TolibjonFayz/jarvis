@@ -449,6 +449,15 @@ async def _send_screenshot(message):
             pass
 
 
+async def cmd_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/buyruqlar — ruxsat berilgan buyruqlar va ishlab turgan serverlar (modelsiz)."""
+    if not _authorized(update):
+        return
+    import commands
+    text = await asyncio.to_thread(commands.list_text)
+    await _send_md(context.bot, update.effective_chat.id, text)
+
+
 async def cmd_screen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         return
@@ -1261,6 +1270,7 @@ BOT_COMMANDS = [
     ("status", "Holat va token sarfi"),
     ("pc", "Kompyuter: holat va boshqaruv"),
     ("ekran", "Kompyuter ekrani rasmi"),
+    ("buyruqlar", "Build/test/git pull/dev serverlar"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1319,6 +1329,7 @@ def main():
     app.add_handler(CommandHandler("xato", cmd_feedback))
     app.add_handler(CommandHandler("pc", cmd_pc))
     app.add_handler(CommandHandler("ekran", cmd_screen))
+    app.add_handler(CommandHandler("buyruqlar", cmd_commands))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(

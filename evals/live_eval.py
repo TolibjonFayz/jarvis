@@ -34,6 +34,7 @@ import brain  # noqa: E402
 import forward  # noqa: E402
 import gcal  # noqa: E402
 import memory  # noqa: E402
+import commands  # noqa: E402
 import pc  # noqa: E402
 import tools  # noqa: E402
 
@@ -77,6 +78,9 @@ def install_fakes():
 
     gcal._svc = lambda: NS(events=lambda: Ev())
     gcal.available = lambda: True
+    commands.run = lambda cid: PC.append(("CMD", cid)) or f"✅ {cid} — sinov"
+    commands.start = lambda cid, wait=20: PC.append(("CMD", cid)) or f"🟢 {cid} — sinov"
+    commands.stop = lambda cid: PC.append(("STOP", cid)) or f"⏹ {cid} — sinov"
 
 
 def _tomorrow_at(h, m=0):
@@ -163,6 +167,12 @@ CASES = [
     dict(q="loyihalarim qanday?", must={"projects_list"}),
     dict(q="eslab qol: onamning tug'ilgan kuni 12-mart", must={"remember"}),
     dict(q="eslatmalarni hammasini o'chir", must_any={"cancel_reminder", "cancel_recurring"}),
+    dict(q="ERP frontendni ishga tushir", must={"cmd_run"},
+         check=lambda: ("CMD", "erp-front-dev") in PC or f"erp-front-dev emas: {[c for c in PC if c[0]=='CMD']}"),
+    dict(q="fit-uz da git pull qil", must={"cmd_run"},
+         check=lambda: ("CMD", "fit-pull") in PC or f"fit-pull emas: {[c for c in PC if c[0]=='CMD']}"),
+    dict(q="ERP frontend serverni to'xtat", must={"cmd_stop"},
+         check=lambda: ("STOP", "erp-front-dev") in PC or "erp-front-dev to'xtatilmadi"),
     dict(q=(run_forward, "[Forward → Kalendar] Aziz: ertaga 15:00 uchrashuv"), must={"calendar_add"},
          check=lambda: any(e["start"].get("dateTime", "")[:16] == _tomorrow_at(15).isoformat()[:16]
                            for e in EVENTS) or "ertaga 15:00 tadbir yo'q"),

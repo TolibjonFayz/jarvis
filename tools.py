@@ -24,6 +24,18 @@ _PERIODS = {
     "otgan_oy": "O'tgan oy", "yil": "Shu yil",
 }
 
+def _commands_ids(kind=None):
+    """data/commands.json dagi identifikatorlar — tool sxemasida enum (model boshqa
+    buyruq o'ylab topa olmasin). Ro'yxat o'zgarsa — bot qayta yoqilganda yangilanadi."""
+    try:
+        import commands
+        cmds = commands.load()
+        out = sorted(i for i, c in cmds.items() if kind is None or c["type"] == kind)
+    except Exception:
+        out = []
+    return out or ["-"]
+
+
 # Qisqa tool ta'riflari (token tejash uchun).
 TOOLS = [
     {
@@ -494,6 +506,32 @@ TOOLS = [
             "type": "object",
             "properties": {"chat": {"type": "string"}, "pin": {"type": ["boolean", "null"]}},
             "required": ["chat"],
+        },
+    },
+    {
+        "name": "cmd_list",
+        "description": "Ruxsat berilgan buyruqlar ro'yxati (build/test/git pull/dev serverlar) va qaysi server ishlayapti",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "cmd_run",
+        "description": (
+            "Ruxsat berilgan buyruqni bajaradi: build/test/git pull — natija; dev server — fonda "
+            "ishga tushadi va manzil qaytadi. id — FAQAT ro'yxatdagisi"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "string", "enum": _commands_ids()}},
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "cmd_stop",
+        "description": "Ishlab turgan dev serverni to'xtatadi",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "string", "enum": _commands_ids("serve")}},
+            "required": ["id"],
         },
     },
     {
@@ -1321,6 +1359,21 @@ def execute_tool(name, tool_input, chat_id=None):
                 "ko'rsatiladi — sen faqat qisqa qilib 'tayyorladim, tugma bilan "
                 "tasdiqlang' de. Tasdiq so'ramа, qayta tayyorlama."
             )
+
+        if name == "cmd_list":
+            import commands
+            return FINAL + commands.list_text()
+
+        if name == "cmd_run":
+            import commands
+            cid = tool_input.get("id", "")
+            if cid not in commands.load():
+                return f"'{cid}' ruxsat berilgan ro'yxatda yo'q. cmd_list bilan ko'r."
+            return FINAL + commands.run(cid)
+
+        if name == "cmd_stop":
+            import commands
+            return FINAL + commands.stop(tool_input.get("id", ""))
 
         if name == "pc_screenshot":
             import pc

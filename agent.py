@@ -140,6 +140,7 @@ TOOL_CATEGORIES = {
         "pc_play_music", "pc_media",
     ],
     "music": ["pc_play_music", "pc_media"],
+    "buyruq": ["cmd_list", "cmd_run", "cmd_stop"],
     "hisobot": ["weekly_report", "set_weekly_report"],
 }
 
@@ -183,6 +184,9 @@ _FORCED_ROUTES = [
     # "todolarni o'chir" — egasi takroriy eslatmalarni ham "todo" deydi: ikkalasi birga.
     (re.compile(r"eslat|uyg.?ot|todo|to-do|vazifa", re.IGNORECASE), ["esl", "todo"]),
     (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
+    # Ruxsat berilgan buyruqlar — loyihadan OLDIN ("git pull" dagi "git" loyihaga ketmasin).
+    (re.compile(r"ishga tushir|\bbuild\b|testlar\w*|git pull|pull qil|dev server|serverni|buyruqlar",
+                re.IGNORECASE), ["buyruq"]),
     (re.compile(r"loyiha|\brepo|commit|\bgit\b|branch|nima qildim", re.IGNORECASE), ["loyiha"]),
     (re.compile(r"kalendar|calendar|taqvim|uchrashuv|meeting|tadbir|\bmajlis", re.IGNORECASE), ["kal"]),
     # "juma kuni 15:00 da ERP demo qo'sh" — vazifaga tushib qolardi; o'chirishda esa
@@ -207,7 +211,7 @@ _ACTION_CLAIM_RE = re.compile(
 _MUTATING = (
     "add_", "set_", "cancel_", "complete_", "delete_", "digest_add", "digest_remove",
     "calendar_add", "calendar_delete", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
-    "pc_lock", "pc_power", "pc_open_url", "pc_play_music", "pc_media",
+    "pc_lock", "pc_power", "pc_open_url", "pc_play_music", "pc_media", "cmd_run", "cmd_stop",
 )
 
 # Egasi biror narsani O'ZGARTIRISHni so'rayapti — ro'yxat ko'rish oraliq qadam bo'ladi.
@@ -320,6 +324,7 @@ def build_system(chat_id, user_text, router=False):
             "web=qidiruv/ob-havo/kurs/URL; tg=Telegram chat/xabar/pin/chiqish/javobsizlar; "
             "dayjest=kanal dayjesti; file=fayl/kod bajarish; esl=eslatma/namoz/brifing; "
             "todo=vazifalar; pul=xarajat/budjet; kal=kalendar/kun tartibi; "
+            "buyruq=loyihada build/test/git pull, dev serverni ishga tushirish/to'xtatish; "
             "pc=kompyuter (ekran rasmi, holat, qulflash, o'chirish, link ochish, qo'shiq qo'yish, "
             "pauza/ovoz); "
             "loyiha=git loyihalar (ERP, Climavent, bilim manba...); "

@@ -24,6 +24,15 @@ _PERIODS = {
     "otgan_oy": "O'tgan oy", "yil": "Shu yil",
 }
 
+def _repo_names():
+    """Git loyihalar nomlari — code_task sxemasida enum."""
+    try:
+        import projects
+        return sorted({r["name"] for r in projects.repos()}) or ["-"]
+    except Exception:
+        return ["-"]
+
+
 def _commands_ids(kind=None):
     """data/commands.json dagi identifikatorlar — tool sxemasida enum (model boshqa
     buyruq o'ylab topa olmasin). Ro'yxat o'zgarsa — bot qayta yoqilganda yangilanadi."""
@@ -506,6 +515,21 @@ TOOLS = [
             "type": "object",
             "properties": {"chat": {"type": "string"}, "pin": {"type": ["boolean", "null"]}},
             "required": ["chat"],
+        },
+    },
+    {
+        "name": "code_task",
+        "description": (
+            "Claude Code'ga kod vazifasini tayyorlaydi (loyihada fayllarni o'zgartiradi). "
+            "Egasi TUGMA bilan tasdiqlaydi. task — egasining so'zlari bilan aniq vazifa"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "enum": _repo_names()},
+                "task": {"type": "string"},
+            },
+            "required": ["project", "task"],
         },
     },
     {
@@ -1358,6 +1382,30 @@ def execute_tool(name, tool_input, chat_id=None):
                 f"Xabar tayyorlandi: {to_name} ga. Foydalanuvchiga tasdiq TUGMASI "
                 "ko'rsatiladi — sen faqat qisqa qilib 'tayyorladim, tugma bilan "
                 "tasdiqlang' de. Tasdiq so'ramа, qayta tayyorlama."
+            )
+
+        if name == "code_task":
+            import claude_bridge
+            import projects
+            found = [r for r in projects.repos() if r["name"] == tool_input.get("project")]
+            task = (tool_input.get("task") or "").strip()
+            if not found:
+                return FINAL + f"'{tool_input.get('project')}' loyihasi topilmadi."
+            if len(task) < 5:
+                return FINAL + "Vazifani aniqroq yoz: nima qilish kerak?"
+            repo = found[0]
+            problem = claude_bridge.preflight(repo["path"])
+            if problem:
+                return FINAL + f"🤖 Boshlab bo'lmaydi: {problem}"
+            sid = next(_send_seq)
+            PENDING_SENDS[sid] = {
+                "kind": "code_task", "chat_id": chat_id, "to_id": repo["path"],
+                "to_name": repo["name"], "text": task, "shown": False,
+            }
+            return FINAL + (
+                f"🤖 **Claude Code** — `{repo['name']}`\nVazifa: {task}\n\n"
+                "Fayllarni o'qiydi/tahrirlaydi (terminal, push, internet yopiq). "
+                "Obuna limitidan sarflanadi. Tasdiqlang 👇"
             )
 
         if name == "cmd_list":

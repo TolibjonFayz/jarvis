@@ -15,6 +15,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | Soha | Misol |
 |---|---|
 | 🖥 Kompyuter | `/pc` — holat (CPU, xotira, disk) + tugmalar: 📸 ekran, 🔒 qulflash, 😴 uxlatish, ⏻ o'chirish, 🔁 restart (quvvat amallari tasdiq bilan, o'chirish 60 s kechikadi — bekor qilsa bo'ladi); link yuborsang kompyuterda ochadi; 🎵 «qo'shiq qo'y», «Ummon Yolg'izim qo'y» (YouTube), «to'xtat», «keyingisi», «ovozni balandlat» |
+| 🤖 Claude Code | «Claude, fit-uz da login tugmasini ko'k qil» yoki `/kod fit-uz ...` → tasdiq → kompyuterda Claude Code ishlaydi → xulosa + o'zgargan fayllar + [✅ Commit] [📄 Diff] [↩️ Bekor qilish (stash)]. Faqat toza loyihada; terminal/push/internet yopiq; obuna limitidan sarflanadi (kichik vazifa ~$1-3 ekvivalent, Opus) |
 | 🛠 Buyruqlar | «ERP frontendni ishga tushir» (dev server → manzil), «fit-uz da git pull qil», «admin panelni build qil», «FRIDAY testlarini ishga tushir», «serverni to'xtat». Faqat `data/commands.json` dagi ro'yxat; prod bazaga yozadigan skriptlar va backend dev serverlar yo'q |
 | 📨 Forward → amal | Istalgan xabarni forward qil → [📅 Kalendar] [⏰ Eslatma] [✅ Vazifa] [💸 Xarajat] [📝 Xulosa], eng mosi ⭐ bilan (tugma bosilmaguncha model chaqirilmaydi) |
 | 💬 Suhbat, kod | «Python'da fayl o'qish kodini yoz», «buni tushuntir» |
@@ -35,7 +36,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 🎤 Ovoz | Ovozli xabarni tushunadi, javobni ovoz bilan ham beradi |
 | 🛡 Guruh moderatsiyasi | So'kinish, 18+ rasm/video, spamer, CAPTCHA, xavfli linklar |
 
-**Buyruqlar:** `/start` · `/pc` · `/ekran` · `/buyruqlar` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/hafta` (haftalik hisobot) · `/zaxira` · `/xato [izoh]` (noto'g'ri javobni belgilash) · `/reset`
+**Buyruqlar:** `/start` · `/kod` · `/pc` · `/ekran` · `/buyruqlar` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/hafta` (haftalik hisobot) · `/zaxira` · `/xato [izoh]` (noto'g'ri javobni belgilash) · `/reset`
 
 ---
 
@@ -107,6 +108,7 @@ digest.py     Kanallar dayjesti + javobsiz xabarlar
 forward.py    Forward qilingan xabar -> tugma bilan amal
 pc.py         Kompyuter: ekran, qulf, quvvat, holat, link
 commands.py   Ruxsat berilgan buyruqlar (build/test/git pull/dev server)
+claude_bridge.py  Claude Code ko'prigi (claude -p, tasdiq, commit/diff/stash)
 projects.py   Git loyihalar (faqat o'qish)
 gcal.py       Google Calendar
 vision.py     Gemini rasm ko'rish

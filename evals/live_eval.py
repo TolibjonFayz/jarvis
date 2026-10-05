@@ -173,8 +173,6 @@ CASES = [
          check=lambda: ("CMD", "fit-pull") in PC or f"fit-pull emas: {[c for c in PC if c[0]=='CMD']}"),
     dict(q="ERP frontend serverni to'xtat", must={"cmd_stop"},
          check=lambda: ("STOP", "erp-front-dev") in PC or "erp-front-dev to'xtatilmadi"),
-    dict(q="Claude, fit-uz da README ga o'rnatish bo'limini qo'sh", must={"code_task"},
-         check=check_pending("code_task")),   # faqat tasdiq tayyorlanadi, Claude ishga tushmaydi
     dict(q=(run_forward, "[Forward → Kalendar] Aziz: ertaga 15:00 uchrashuv"), must={"calendar_add"},
          check=lambda: any(e["start"].get("dateTime", "")[:16] == _tomorrow_at(15).isoformat()[:16]
                            for e in EVENTS) or "ertaga 15:00 tadbir yo'q"),

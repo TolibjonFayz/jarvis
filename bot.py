@@ -208,7 +208,6 @@ async def _show_pending_sends(update: Update, chat_id):
             "leave": ("🚪 Chiqish", f"🚪 {p['to_name']} — chiqilsinmi?"),
             "gcal_delete": ("🗑 O'chirish", f"🗑 Kalendardan o'chirilsinmi?\n{p['to_name']}"),
             "pc_power": (p["to_name"], f"{p['to_name']} — rostdan ham? (FRIDAY ham to'xtaydi)"),
-            "code_task": ("▶️ Boshlash", f"🤖 Claude {p['to_name']} da ishlasinmi?"),
         }.get(kind, (
             "✅ Yuborish",
             f"📨 Qabul qiluvchi: {p['to_name']}\n\n\"{p['text']}\"\n\nYuborilsinmi?",
@@ -411,77 +410,6 @@ _UNMUTE = ChatPermissions(
 )
 
 
-# --- Claude Code ko'prigi (/kod, cc:* tugmalar) ---
-
-def _code_keyboard(tid):
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Commit", callback_data=f"cc:commit:{tid}"),
-        InlineKeyboardButton("📄 Diff", callback_data=f"cc:diff:{tid}"),
-        InlineKeyboardButton("↩️ Bekor qilish", callback_data=f"cc:revert:{tid}"),
-    ]])
-
-
-async def _run_code_task(bot, chat_id, p):
-    import claude_bridge as cb
-    repo, path, task = p["to_name"], p["to_id"], p["text"]
-    log.info("Claude vazifasi boshlandi: %s — %s", repo, task[:80])
-    try:
-        res = await asyncio.to_thread(cb.run_task, path, task)
-    except Exception as e:
-        log.exception("Claude vazifasida xato")
-        res = {"ok": False, "error": str(e), **cb.changes(path)}
-    log.info("Claude vazifasi tugadi: %s ok=%s fayllar=%s", repo, res.get("ok"), len(res.get("files") or []))
-    text = cb.result_text(repo, task, res)
-    kb = None
-    if res.get("files"):
-        kb = _code_keyboard(cb.new_result(repo, path, task))
-    try:
-        await bot.send_message(chat_id, fmt.to_html(text), parse_mode=ParseMode.HTML, reply_markup=kb)
-    except BadRequest:
-        await bot.send_message(chat_id, fmt.to_plain(text), reply_markup=kb)
-
-
-async def _on_code_button(update: Update, context: ContextTypes.DEFAULT_TYPE, data):
-    import claude_bridge as cb
-    q = update.callback_query
-    _, cmd, tid_s = data.split(":", 2)
-    item = cb.RESULTS.get(int(tid_s))
-    await q.answer()
-    if not item:
-        await q.message.reply_text("Bu natija eskirgan (bot qayta ishga tushgan) — o'zgarishlar loyihada turibdi, git bilan ko'r.")
-        return
-    if cmd == "diff":
-        d = await asyncio.to_thread(cb.diff_text, item["path"])
-        html_diff = "<pre>" + __import__("html").escape(d or "(farq yo'q)") + "</pre>"
-        await q.message.reply_text(html_diff, parse_mode=ParseMode.HTML)
-        return
-    if cmd == "commit":
-        out = await asyncio.to_thread(cb.commit, item["path"], item["task"])
-    elif cmd == "revert":
-        out = await asyncio.to_thread(cb.revert, item["path"])
-    else:
-        return
-    cb.RESULTS.pop(int(tid_s), None)
-    await q.edit_message_reply_markup(reply_markup=None)
-    await q.message.reply_text(fmt.to_html(out), parse_mode=ParseMode.HTML)
-
-
-async def cmd_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/kod <loyiha> <vazifa> — Claude Code'ga vazifa (tasdiq bilan)."""
-    if not _authorized(update):
-        return
-    text = " ".join(context.args or []).strip()
-    if not text:
-        await update.message.reply_text(
-            "Masalan: /kod fit-uz login sahifasidagi tugma rangini ko'k qil\n"
-            "Yoki oddiy yoz: «Claude, fit-uz da ... tuzat»"
-        )
-        return
-    reply = await _respond(context, update.effective_chat.id, f"[kod] {text}")
-    await _send_md(context.bot, update.effective_chat.id, reply)
-    await _show_pending_sends(update, update.effective_chat.id)
-
-
 # --- Kompyuter boshqaruvi (/pc, /ekran, pc:* tugmalar) ---
 
 def _pc_keyboard():
@@ -667,13 +595,6 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _on_forward_button(update, context, data)
         return
 
-    if data.startswith("cc:"):
-        if not _authorized(update):
-            await q.answer()
-            return
-        await _on_code_button(update, context, data)
-        return
-
     if data.startswith("pc:"):
         if not _authorized(update):
             await q.answer()
@@ -736,13 +657,6 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif kind == "pc_power":
                 await _run_power(q, p["to_id"])
                 return
-            elif kind == "code_task":
-                await q.edit_message_text(
-                    f"⏳ Claude {p['to_name']} da ishlayapti… (bir necha daqiqa; tugagach yozaman)"
-                )
-                # Fonda: bot boshqa xabarlarga javob berishda davom etadi.
-                asyncio.create_task(_run_code_task(context.bot, update.effective_chat.id, p))
-                return
             else:
                 result = await asyncio.to_thread(userbot.send_message, p["to_id"], p["text"])
             await q.edit_message_text(f"✅ {result}")
@@ -754,7 +668,6 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "leave": f"❌ Bekor qilindi ({p['to_name']} da qolding).",
             "gcal_delete": f"❌ Bekor qilindi (tadbir o'chirilmadi).",
             "pc_power": "❌ Bekor qilindi — kompyuter tegilmadi.",
-            "code_task": "❌ Bekor qilindi — Claude ishga tushmadi.",
         }.get(kind, f"❌ Bekor qilindi ({p['to_name']} ga yuborilmadi)."))
 
 
@@ -1358,7 +1271,6 @@ BOT_COMMANDS = [
     ("pc", "Kompyuter: holat va boshqaruv"),
     ("ekran", "Kompyuter ekrani rasmi"),
     ("buyruqlar", "Build/test/git pull/dev serverlar"),
-    ("kod", "Claude Code: loyihada kod vazifasi"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1418,7 +1330,6 @@ def main():
     app.add_handler(CommandHandler("pc", cmd_pc))
     app.add_handler(CommandHandler("ekran", cmd_screen))
     app.add_handler(CommandHandler("buyruqlar", cmd_commands))
-    app.add_handler(CommandHandler("kod", cmd_code))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(

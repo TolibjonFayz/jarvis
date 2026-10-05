@@ -141,7 +141,6 @@ TOOL_CATEGORIES = {
     ],
     "music": ["pc_play_music", "pc_media"],
     "buyruq": ["cmd_list", "cmd_run", "cmd_stop"],
-    "kod": ["code_task"],
     "hisobot": ["weekly_report", "set_weekly_report"],
 }
 
@@ -175,9 +174,6 @@ _DAY_OR_TIME = (
 )
 
 _FORCED_ROUTES = [
-    # Kod o'zgartirish — faqat aniq chaqirilganda ("Claude, ..." yoki /kod), tasodifan emas.
-    (re.compile(r"\bclaude\b.{0,200}(tuzat|qo.?sh|o.?zgartir|yoz|qil|refactor|o.?chir|yangila|"
-                r"yarat|tekshir|fix|add)|^\[kod\]", re.IGNORECASE | re.DOTALL), ["kod"]),
     # Jonli sinov (2026-10-05) topgan: "eslab qol: tug'ilgan kun" eslatma bo'lib qolardi.
     (re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE), ["xot"]),
     (re.compile(r"haftalik", re.IGNORECASE), ["hisobot"]),
@@ -216,7 +212,6 @@ _MUTATING = (
     "add_", "set_", "cancel_", "complete_", "delete_", "digest_add", "digest_remove",
     "calendar_add", "calendar_delete", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
     "pc_lock", "pc_power", "pc_open_url", "pc_play_music", "pc_media", "cmd_run", "cmd_stop",
-    "code_task",
 )
 
 # Egasi biror narsani O'ZGARTIRISHni so'rayapti — ro'yxat ko'rish oraliq qadam bo'ladi.
@@ -330,7 +325,6 @@ def build_system(chat_id, user_text, router=False):
             "dayjest=kanal dayjesti; file=fayl/kod bajarish; esl=eslatma/namoz/brifing; "
             "todo=vazifalar; pul=xarajat/budjet; kal=kalendar/kun tartibi; "
             "buyruq=loyihada build/test/git pull, dev serverni ishga tushirish/to'xtatish; "
-            "kod=Claude Code orqali loyiha kodini o'zgartirish (faqat 'Claude' deyilsa); "
             "pc=kompyuter (ekran rasmi, holat, qulflash, o'chirish, link ochish, qo'shiq qo'yish, "
             "pauza/ovoz); "
             "loyiha=git loyihalar (ERP, Climavent, bilim manba...); "

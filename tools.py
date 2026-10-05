@@ -669,7 +669,12 @@ def extract_document_text(path, filename="", mime=""):
 
             d = docx.Document(path)
             return "\n".join(p.text for p in d.paragraphs).strip()
-        # txt / md / kod / csv va h.k.
+        # txt / md / kod / csv va h.k. Binar fayl (video, zip, exe...) matn deb o'qilib,
+        # modelga 5000 belgi "axlat" ketardi — NUL bayt bo'lsa rad etamiz.
+        with open(path, "rb") as f:
+            head = f.read(4096)
+        if b"\x00" in head:
+            return "__XATO__: binar fayl (matn emas)"
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.read().strip()
     except Exception as e:
@@ -1368,8 +1373,10 @@ def execute_tool(name, tool_input, chat_id=None):
         if name == "list_todos":
             todos = memory.list_todos(chat_id)
             if not todos:
-                return "Vazifalar ro'yxati bo'sh."
-            return "\n".join(f"{i}. {t}" for i, (_id, t) in enumerate(todos, 1))
+                return FINAL + "✅ Ochiq vazifa yo'q."
+            return FINAL + f"✅ **Vazifalar** ({len(todos)})\n" + "\n".join(
+                f"{i}. {t}" for i, (_id, t) in enumerate(todos, 1)
+            )
 
         if name == "complete_todo":
             if tool_input.get("all"):

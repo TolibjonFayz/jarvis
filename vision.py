@@ -24,7 +24,15 @@ _PROMPT = (
     "Rasmni o'zbek tilida aniq tasvirla. Rasmda matn bo'lsa — uni aynan ko'chir. "
     "Chek/hisob-faktura bo'lsa: do'kon, sana, har bir mahsulot va narxi, jami summa. "
     "Kod/xato skrinshoti bo'lsa: kod va xato matnini aynan ko'chir. "
+    "Qisqartma belgilarni so'z bilan yoz: sportdagi 38' -> '38-daqiqa' "
+    "(aks holda keyingi model uni 'soniya' deb tarjima qilardi). "
     "Taxmin qilma, ko'rinmagan narsani yozma. Qisqa va tartibli yoz."
+)
+
+_VIDEO_PROMPT = (
+    "Videoni o'zbek tilida tasvirla: nima bo'layapti (boshidan oxirigacha qisqa), kimlar yoki "
+    "nimalar bor, ekrandagi matn va eshitilgan asosiy gaplar. Taxmin qilma, "
+    "ko'rinmagan/eshitilmagan narsani yozma. Qisqa va tartibli yoz."
 )
 
 
@@ -45,7 +53,8 @@ def describe(image_bytes, mime="image/jpeg", note=""):
         raise VisionError("GEMINI_API_KEY sozlanmagan")
     parts = [
         {"inline_data": {"mime_type": mime, "data": base64.b64encode(image_bytes).decode()}},
-        {"text": _PROMPT + (f"\nEgasining izohi: {note}" if note else "")},
+        {"text": (_VIDEO_PROMPT if mime.startswith("video/") else _PROMPT)
+                 + (f"\nEgasining izohi: {note}" if note else "")},
     ]
     body = json.dumps({"contents": [{"parts": parts}]}).encode()
     last = ""

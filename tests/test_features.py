@@ -246,3 +246,28 @@ def test_overdue_reminders_query():
     memory.add_reminder(CHAT, "kelajak", time.time() + 3600)
     rows = memory.due_reminders_with_ts()
     assert [r[2] for r in rows] == ["eski"]
+
+
+# --- /xato tahlilidan (2026-10-05) ---
+
+def test_binary_file_not_read_as_text(tmp_path):
+    # Video hujjat matn deb o'qilib, modelga "axlat" ketardi.
+    p = tmp_path / "joker.mp4"
+    p.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100)
+    assert tools.extract_document_text(str(p), "joker.mp4", "video/mp4").startswith("__XATO__")
+    t = tmp_path / "eslatma.txt"
+    t.write_text("salom dunyo", encoding="utf-8")
+    assert tools.extract_document_text(str(t), "eslatma.txt") == "salom dunyo"
+
+
+def test_plain_word_commands():
+    import bot
+    # "status" (slashsiz) modelga borib, o'zidan javob to'qirdi.
+    assert bot.WORD_COMMANDS["status"] is bot.status
+    assert bot.WORD_COMMANDS["holat"] is bot.status
+
+
+def test_list_todos_has_header():
+    memory.add_todo(CHAT, "non olish")
+    out = run("list_todos")
+    assert out.startswith("✅ **Vazifalar** (1)") and "non olish" in out

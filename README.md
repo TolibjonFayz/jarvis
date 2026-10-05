@@ -29,7 +29,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 👨‍💻 Loyihalar | «loyihalarim qanday?», «ERP'da shu oy nima o'zgardi?», «bugun nima qildim?» |
 | 📱 Shaxsiy Telegram | Chatlarni o'qiydi, pin/unpin qiladi; xabar yuborish va kanal/guruhdan chiqish faqat ✅ tugma bilan |
 | 🔍 Ma'lumot | Internet qidiruv, havola o'qish, ob-havo, Markaziy bank kursi |
-| 📄 Hujjat, 🖼 rasm | PDF/DOCX/TXT xulosasi; rasm/chek/skrinshot (chek + «xarajatga qo'sh») |
+| 📄 Hujjat, 🖼 rasm, 🎥 video | PDF/DOCX/TXT xulosasi; rasm/chek/skrinshot (chek + «xarajatga qo'sh»); video (15MB gacha) — nima bo'layotgani, matn, ovoz |
 | 🎤 Ovoz | Ovozli xabarni tushunadi, javobni ovoz bilan ham beradi |
 | 🛡 Guruh moderatsiyasi | So'kinish, 18+ rasm/video, spamer, CAPTCHA, xavfli linklar |
 
@@ -42,7 +42,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | Xizmat | Nima uchun | Nima boradi |
 |---|---|---|
 | Groq | Asosiy miya, xotira, dayjest, moderatsiya | Suhbat, xotira faktlari, o'qilgan chat/kanal matni |
-| Gemini (tekin) | Faqat rasm ko'rish | **Faqat rasm + izoh.** Xotira, tarix, Telegram, xarajatlar YUBORILMAYDI |
+| Gemini (tekin) | Faqat rasm/video ko'rish | **Faqat rasm/video + izoh.** Xotira, tarix, Telegram, xarajatlar YUBORILMAYDI |
 | Google Calendar | Tadbirlar | Faqat `calendar.events` ruxsati |
 | Hech qayerga | Javobsiz xabarlar, loyihalar (git), NSFW tekshiruv | Lokal hisoblanadi |
 

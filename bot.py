@@ -152,6 +152,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     text = update.message.text
+    # "status" (slashsiz) model'ga borib, o'zidan aralash javob to'qirdi — buyruqqa bog'laymiz.
+    alias = WORD_COMMANDS.get(text.strip().lower().strip("!?. "))
+    if alias and update.message.forward_origin is None:
+        await alias(update, context)
+        return
     if update.message.forward_origin is not None:
         await _offer_forward_actions(update, chat_id, text)
         return
@@ -254,22 +259,31 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, chat_id, reply)
 
 
+MEDIA_MAX_MB = 15  # Gemini inline so'rov chegarasi ~20MB
+
+
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Rasm: Gemini FAQAT rasm+izohni ko'radi, javobni Groq'dagi agent yozadi
-    (shaxsiy kontekst — xotira, tarix — Gemini'ga bormaydi)."""
+    """Rasm va video: Gemini FAQAT media+izohni ko'radi, javobni Groq'dagi agent yozadi
+    (shaxsiy kontekst — xotira, tarix — Gemini'ga bormaydi). Avval video hujjat
+    sifatida kelib, matn deb o'qilardi ("binar faylni o'qiy olmayman")."""
     if not _authorized(update):
         return
     msg = update.effective_message
     chat_id = update.effective_chat.id
-    if not vision.available():
-        await msg.reply_text("🖼 Rasm ko'rish uchun .env ga GEMINI_API_KEY qo'yish kerak.")
-        return
     if msg.photo:
         media, mime = msg.photo[-1], "image/jpeg"  # eng katta o'lcham
+    elif msg.video or msg.video_note or msg.animation:
+        media = msg.video or msg.video_note or msg.animation
+        mime = getattr(media, "mime_type", None) or "video/mp4"
     else:
         media, mime = msg.document, msg.document.mime_type or "image/jpeg"
-    if (media.file_size or 0) > 15 * 1024 * 1024:
-        await msg.reply_text("Rasm juda katta (15MB dan oshmasin).")
+    is_video = mime.startswith("video/")
+    kind = "video" if is_video else "rasm"
+    if not vision.available():
+        await msg.reply_text(f"🖼 {kind.capitalize()} ko'rish uchun .env ga GEMINI_API_KEY qo'yish kerak.")
+        return
+    if (media.file_size or 0) > MEDIA_MAX_MB * 1024 * 1024:
+        await msg.reply_text(f"{kind.capitalize()} juda katta ({MEDIA_MAX_MB}MB dan oshmasin).")
         return
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
@@ -279,15 +293,19 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         desc = await asyncio.to_thread(vision.describe, data, mime, note)
     except vision.VisionError as e:
-        log.warning("Rasm ko'rilmadi: %s", e)
+        log.warning("%s ko'rilmadi: %s", kind, e)
         await msg.reply_text(
-            "🖼 Rasmni hozir ko'ra olmadim (Gemini limiti yoki band). Keyinroq qayta yubor."
+            f"🖼 {kind.capitalize()}ni hozir ko'ra olmadim (Gemini limiti yoki band). Keyinroq qayta yubor."
         )
         return
 
+    # Izohsiz: qisqa javob — avval tavsifni qayta sanab chiqib, o'zidan xulosa qo'shardi.
+    default = (
+        f"{kind.capitalize()}da nima borligini 2-3 gapda ayt. Tavsifni qayta sanab chiqma, "
+        "unda yo'q narsani qo'shma."
+    )
     prompt = (
-        f"[Egang rasm yubordi. Rasmdagi narsa (avtomatik tavsif):\n{desc[:3000]}]\n\n"
-        + (note or "Rasm haqida qisqacha ayt.")
+        f"[Egang {kind} yubordi. Avtomatik tavsif:\n{desc[:3000]}]\n\n" + (note or default)
     )
     try:
         reply = await _respond(context, chat_id, prompt, note)
@@ -1147,6 +1165,13 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
         log.error("Kutilmagan xatolik: %s", err)
 
 
+# Slashsiz yozilgan buyruq so'zlari ("status") — modelga bormaydi.
+WORD_COMMANDS = {
+    "status": status, "holat": status, "statistika": status,
+    "yordam": start, "help": start, "menyu": start,
+}
+
+
 def main():
     config.check()
     memory.init_db()
@@ -1178,7 +1203,11 @@ def main():
     # fayl sifatida yuborilgan rasm ham shu yerga tushsin.
     app.add_handler(
         MessageHandler(
-            filters.ChatType.PRIVATE & (filters.PHOTO | filters.Document.IMAGE), on_photo
+            filters.ChatType.PRIVATE & (
+                filters.PHOTO | filters.Document.IMAGE | filters.VIDEO | filters.VIDEO_NOTE
+                | filters.ANIMATION | filters.Document.VIDEO
+            ),
+            on_photo,
         )
     )
     # Hujjatlar (shaxsiy chat) -> o'qib xulosa qilish.

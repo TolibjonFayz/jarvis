@@ -458,6 +458,46 @@ async def cmd_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, update.effective_chat.id, text)
 
 
+async def cmd_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/city — Man City: keyingi o'yinlar, jadval va oxirgi natija (modelsiz)."""
+    if not _authorized(update):
+        return
+    import football
+
+    def build():
+        parts = [football.fixtures_text()]
+        try:
+            parts.append(football.result_text(football.results()[0]))
+        except Exception:
+            pass
+        return "\n\n".join(parts)
+    await _send_md(context.bot, update.effective_chat.id, await asyncio.to_thread(build))
+
+
+async def football_job(context: ContextTypes.DEFAULT_TYPE):
+    """Man City: o'yin kuni / 1 soat oldin / natija (10 daqiqada) + jiddiy yangiliklar (2 soatda)."""
+    import football
+    owner = config.OWNER_ID
+    if not owner or memory.get_setting(owner, "football", "0") != "1":
+        return
+    try:
+        msgs = await asyncio.to_thread(football.match_alerts, owner)
+        if football.news_due(owner):
+            football.mark_news_checked(owner)
+            try:
+                msgs += await asyncio.to_thread(football.serious_news, owner)
+            except Exception as e:
+                log.warning("Futbol yangiliklari xatosi: %s", str(e)[:150])
+    except Exception as e:
+        log.warning("Futbol xatosi: %s", str(e)[:150])
+        return
+    for text in msgs:
+        try:
+            await _send_md(context.bot, owner, text)
+        except Exception:
+            log.warning("Futbol xabari yuborilmadi")
+
+
 async def cmd_dates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/sanalar — tug'ilgan kunlar va yillik sanalar (modelsiz)."""
     if not _authorized(update):
@@ -1301,6 +1341,7 @@ BOT_COMMANDS = [
     ("ekran", "Kompyuter ekrani rasmi"),
     ("buyruqlar", "Build/test/git pull/dev serverlar"),
     ("sanalar", "Tug'ilgan kunlar va yillik sanalar"),
+    ("city", "Man City: o'yinlar, jadval, natija"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1362,6 +1403,7 @@ def main():
     app.add_handler(CommandHandler("ekran", cmd_screen))
     app.add_handler(CommandHandler("buyruqlar", cmd_commands))
     app.add_handler(CommandHandler("sanalar", cmd_dates))
+    app.add_handler(CommandHandler("city", cmd_city))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(
@@ -1431,6 +1473,7 @@ def main():
         app.job_queue.run_repeating(weekly_job, interval=600, first=150)
         import nowplaying
         app.job_queue.run_repeating(loop_job, interval=nowplaying.TICK_SEC, first=5)
+        app.job_queue.run_repeating(football_job, interval=600, first=45)
         # Kundalik: avto-namoz va tonggi brifing — aniq soatda emas, kompyuter
         # yoqilgandan keyin (kuniga bir marta): run_daily o'chiq kompyuterda o'tib ketardi.
         app.job_queue.run_repeating(daily_prayers_job, interval=600, first=20)

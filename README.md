@@ -23,6 +23,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 💰 Oylik budjet | «ovqatga oyiga 2 mln budjet», «budjetim qalay?» — 80%/100% da ogohlantiradi |
 | 📅 Calendar, kun tartibi | «ertaga 15:00 da Aziz bilan uchrashuv qo'sh», «bu hafta nima bor?» (tadbir + eslatma + vazifa), «test uchrashuvni o'chir» (tugma bilan) |
 | ⏰ Eslatmalar | «30 daqiqadan keyin eslat», «har dushanba 18:00 yig'ilish», «eslatmalarni hammasini o'chir» |
+| ⚽ Man City | Avtomatik: o'yin kuni ertalab (Chempionlar ligasining tungi o'yinlari oldingi kuni), 1 soat oldin, natija + gollar + qizil kartochkalar + APL'dagi o'rni; jiddiy yangiliklar (jarohat, rasmiy transfer, murabbiy, sud/ochko ayirish — mish-mish va fikrlarsiz, model filtrlaydi, 2 soatda bir). «Man City keyingi o'yini qachon?», `/city`. Manba: ESPN ochiq API (kalitsiz) |
 | 🎂 Yillik sanalar | «akamning tug'ilgan kuni 15-oktyabr» → har yili bir kun oldin va o'sha kuni ertalab (9:00 dan keyin, PC kech yoqilsa ham) eslatadi; yil aytilsa yoshini ham; haftalik hisobotda yaqin sanalar; `/sanalar` |
 | ✅ Todo | «ro'yxatga qo'sh: kitob o'qish», «vazifalarim?» |
 | 📊 Haftalik hisobot | Haftaning birinchi kompyuter yoqilishida (odatda dushanba ertalab) — o'tgan hafta: xarajatlar, commitlar, vazifalar + bu hafta kalendari. AI'siz, token sarflamaydi. `/hafta` — joriy hafta |
@@ -36,7 +37,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 🎤 Ovoz | Ovozli xabarni tushunadi, javobni ovoz bilan ham beradi |
 | 🛡 Guruh moderatsiyasi | So'kinish, 18+ rasm/video, spamer, CAPTCHA, xavfli linklar |
 
-**Buyruqlar:** `/start` · `/pc` · `/ekran` · `/buyruqlar` · `/sanalar` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/hafta` (haftalik hisobot) · `/zaxira` · `/xato [izoh]` (noto'g'ri javobni belgilash) · `/reset`
+**Buyruqlar:** `/start` · `/pc` · `/ekran` · `/buyruqlar` · `/sanalar` · `/city` · `/status` (holat, 24 soatlik token sarfi) · `/dayjest` · `/javobsiz` · `/hafta` (haftalik hisobot) · `/zaxira` · `/xato [izoh]` (noto'g'ri javobni belgilash) · `/reset`
 
 ---
 
@@ -108,6 +109,7 @@ digest.py     Kanallar dayjesti + javobsiz xabarlar
 forward.py    Forward qilingan xabar -> tugma bilan amal
 pc.py         Kompyuter: ekran, qulf, quvvat, holat, link
 nowplaying.py Hozir nima o'ynayapti + loop (Windows media sessiyasi)
+football.py   Man City: o'yinlar, natijalar, jiddiy yangiliklar (ESPN)
 commands.py   Ruxsat berilgan buyruqlar (build/test/git pull/dev server)
 projects.py   Git loyihalar (faqat o'qish)
 gcal.py       Google Calendar

@@ -237,6 +237,30 @@ TOOLS = [
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
+        "name": "city_fixtures",
+        "description": "Man City keyingi o'yinlari (hamma turnirlar, Toshkent vaqti) + APL jadvalidagi o'rni.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "city_results",
+        "description": "Man City oxirgi natijalari; last_detail=true bo'lsa oxirgi o'yin gollari bilan.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"last_detail": {"type": ["boolean", "null"]}},
+            "required": [],
+        },
+    },
+    {
+        "name": "set_football_alerts",
+        "description": "Man City avtomatik xabarlarini yoqish/o'chirish (o'yin kuni, 1 soat oldin, "
+                       "natija, jiddiy yangiliklar).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"on": {"type": "boolean"}},
+            "required": ["on"],
+        },
+    },
+    {
         "name": "add_date",
         "description": (
             "YILLIK sana qo'shadi (tug'ilgan kun, yubiley, to'y kuni) — har yili bir kun oldin "
@@ -1127,6 +1151,15 @@ def weekly_report_text(chat_id, today=None, previous=False):
         except Exception as e:
             out.append(f"\n📅 Kalendarni o'qib bo'lmadi: {str(e)[:60]}")
 
+    # Man City — kelasi haftadagi o'yinlar
+    if memory.get_setting(chat_id, "football", "0") == "1":
+        import football
+        city = football.week_lines(
+            now=datetime.datetime.combine(today, datetime.time(0), football.TZ))
+        if city:
+            out.append(f"\n⚽ **{football.TEAM}**")
+            out += city
+
     # Yillik sanalar — sovg'a o'ylashga vaqt qolsin
     soon = [r for r in memory.list_dates(chat_id, today) if (r[5] - today).days <= 7]
     if soon:
@@ -1600,6 +1633,25 @@ def execute_tool(name, tool_input, chat_id=None):
                 when = _DAYS[dow] if dow is not None else "har kuni"
                 out.append(f"{i}. {when} {h:02d}:{m:02d} — {text}")
             return "\n".join(out)
+
+        if name == "city_fixtures":
+            import football
+            return FINAL + football.fixtures_text()
+
+        if name == "city_results":
+            import football
+            if tool_input.get("last_detail"):
+                try:
+                    return FINAL + football.result_text(football.results()[0])
+                except Exception as e:
+                    return f"❌ Natijani olib bo'lmadi: {str(e)[:80]}"
+            return FINAL + football.results_text()
+
+        if name == "set_football_alerts":
+            on = bool(tool_input.get("on"))
+            memory.set_setting(chat_id, "football", "1" if on else "0")
+            return FINAL + ("⚽ Man City xabarlari YOQILDI: o'yin kuni, 1 soat oldin, natija va "
+                            "jiddiy yangiliklar." if on else "⚽ Man City xabarlari o'chirildi.")
 
         if name == "add_date":
             month, day = int(tool_input["month"]), int(tool_input["day"])

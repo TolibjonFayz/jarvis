@@ -143,6 +143,7 @@ TOOL_CATEGORIES = {
     "music": ["pc_play_music", "pc_media"],
     "buyruq": ["cmd_list", "cmd_run", "cmd_stop"],
     "hisobot": ["weekly_report", "set_weekly_report"],
+    "futbol": ["city_fixtures", "city_results", "set_football_alerts", "web_search"],
 }
 
 _TOOL_RE = re.compile(r"<\s*TOOL\s*:?\s*([a-z, ]*)>?", re.IGNORECASE)
@@ -181,6 +182,9 @@ _FORCED_ROUTES = [
                 re.IGNORECASE), ["esl"]),
     # Jonli sinov (2026-10-05) topgan: "eslab qol: tug'ilgan kun" eslatma bo'lib qolardi.
     (re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE), ["xot"]),
+    # Man City: o'yinlar/natijalar o'z tool'i bilan (avval web qidiruvdan taxmin qilardi).
+    (re.compile(r"man\.?\s*city|manchester\s*city|\bsiti\b|\bcity\b.{0,30}(o.?yin|match|hisob|natija)|"
+                r"futbol\s*xabar", re.IGNORECASE), ["futbol"]),
     (re.compile(r"haftalik", re.IGNORECASE), ["hisobot"]),
     # "bu hafta nima bor?" — router tool'siz javob berib, yo'q eslatmani o'ylab topdi.
     (re.compile(r"nima bor|rejam|rejalarim|kun tartib|band\s*(man|emas)|bo.?sh vaqt", re.IGNORECASE), ["kal"]),
@@ -390,7 +394,7 @@ def build_system(chat_id, user_text, router=False):
             "web=qidiruv/ob-havo/kurs/URL; tg=Telegram chat/xabar/pin/chiqish/javobsizlar; "
             "dayjest=kanal dayjesti; file=fayl/kod bajarish; esl=eslatma/namoz/brifing/tug'ilgan kunlar; "
             "todo=vazifalar; pul=xarajat/budjet; kal=kalendar/kun tartibi; "
-            "buyruq=loyihada build/test/git pull, dev serverni ishga tushirish/to'xtatish; "
+            "futbol=Man City o'yinlari/natijalari/xabarlari; buyruq=loyihada build/test/git pull, dev serverni ishga tushirish/to'xtatish; "
             "pc=kompyuter (ekran rasmi, holat, qulflash, o'chirish, link ochish, qo'shiq qo'yish, "
             "pauza/ovoz); "
             "loyiha=git loyihalar (ERP, Climavent, bilim manba...); "

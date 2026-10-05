@@ -138,7 +138,7 @@ TOOL_CATEGORIES = {
     "kal": ["agenda", "calendar_events", "calendar_add", "calendar_delete"],
     "pc": [
         "pc_screenshot", "pc_status", "pc_lock", "pc_power", "pc_open_url",
-        "pc_play_music", "pc_media",
+        "pc_play_music", "pc_media", "pc_send_file", "pc_clipboard_get", "pc_clipboard_set",
     ],
     "music": ["pc_play_music", "pc_media"],
     "buyruq": ["cmd_list", "cmd_run", "cmd_stop"],
@@ -182,6 +182,10 @@ _FORCED_ROUTES = [
                 re.IGNORECASE), ["esl"]),
     # Jonli sinov (2026-10-05) topgan: "eslab qol: tug'ilgan kun" eslatma bo'lib qolardi.
     (re.compile(r"eslab qol|esda tut|esingda tut|yodda tut|yodingda tut", re.IGNORECASE), ["xot"]),
+    # Telefon <-> kompyuter: fayl yuborish va clipboard ("loyiha" so'zi bo'lsa ham shu yerga).
+    (re.compile(r"(fayl\w*|pdf\w*|docx?\w*|xlsx?\w*|skrinshot\w*|screenshot\w*)\s*(ni\s*)?(menga\s*)?yubor|"
+                r"kompyuterdan.{0,60}yubor|\bdownloads?\b|yuklamalar|ish\s*stoli|\bdesktop\b|"
+                r"clipboard|bufer|nusxala", re.IGNORECASE), ["pc"]),
     # Man City: o'yinlar/natijalar o'z tool'i bilan (avval web qidiruvdan taxmin qilardi).
     (re.compile(r"man\.?\s*city|manchester\s*city|\bsiti\b|\bcity\b.{0,30}(o.?yin|match|hisob|natija)|"
                 r"futbol\s*xabar", re.IGNORECASE), ["futbol"]),
@@ -221,6 +225,7 @@ _MUTATING = (
     "add_", "set_", "cancel_", "complete_", "delete_", "digest_add", "digest_remove",
     "calendar_add", "calendar_delete", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
     "pc_lock", "pc_power", "pc_open_url", "pc_play_music", "pc_media", "cmd_run", "cmd_stop",
+    "pc_clipboard_set",
 )
 
 # Egasi biror narsani O'ZGARTIRISHni so'rayapti — ro'yxat ko'rish oraliq qadam bo'ladi.
@@ -334,6 +339,30 @@ def quick_media(text, chat_id):
         for word, action in _FUZZY_MEDIA.items():
             if _edit1(t, word):
                 return action, None
+    return None
+
+
+# Clipboard — modelsiz. "nusxala: <matn>" dagi matn AYNAN (katta-kichik harf, qatorlar) saqlanadi.
+_CLIP_SET_RE = re.compile(
+    r"^\s*(?:(?:kompyuter|pc|clipboard|bufer)\w*\s*(?:ga\s*)?(?:nusxala\w*|copy|qo.?y)|nusxala\w*|copy)"
+    r"\s*[:\-–—]\s*(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_CLIP_GET_RE = re.compile(
+    r"(clipboard|bufer)\w*\s*(da\w*\s*)?(gi\s*)?(narsa\w*\s*)?(ni\s*)?(yubor|ko.?rsat|ber|nima)|"
+    r"kompyuterdagi\s*nusxa\w*|nusxalangan\w*\s*(narsa\w*\s*|matn\w*\s*)?(ni\s*)?(yubor|ko.?rsat|ber)",
+    re.IGNORECASE,
+)
+
+
+def quick_bridge(text):
+    """(tool, args) yoki None."""
+    t = (text or "").strip()
+    m = _CLIP_SET_RE.match(t)
+    if m and m.group(1).strip():
+        return "pc_clipboard_set", {"text": m.group(1).strip()}
+    if len(t.split()) <= 8 and _CLIP_GET_RE.search(t):
+        return "pc_clipboard_get", {}
     return None
 
 
@@ -669,8 +698,10 @@ def respond(chat_id, user_text, route_text=None):
             brain.after_turn(chat_id, HISTORY_WINDOW)
             return final
 
-    quick = None
-    if _QUICK_MUSIC_RE.fullmatch(route):
+    quick = quick_bridge(route)
+    if quick:
+        pass
+    elif _QUICK_MUSIC_RE.fullmatch(route):
         quick = ("pc_play_music", {})
     else:
         qm = quick_media(route, chat_id)

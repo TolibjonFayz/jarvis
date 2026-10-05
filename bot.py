@@ -1,4 +1,6 @@
+import datetime
 import os
+import re
 import time
 import asyncio
 import logging
@@ -146,6 +148,47 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Suhbat tozalandi. Toza varaqdan boshladik.")
 
 
+# Telefon -> kompyuter: izohda yoki javobda shu so'zlar bo'lsa fayl Downloads\FRIDAY ga saqlanadi
+# (rasm Gemini'ga yuborilmaydi).
+_SAVE_RE = re.compile(r"\bsaqla|\bsave\b|kompyuterga|\bpc\s*ga\b|downloads?\s*ga", re.IGNORECASE)
+_COPY_REPLY_RE = re.compile(r"^\s*((kompyuter|pc)\w*\s*(ga\s*)?)?(nusxala\w*|copy)\s*(bro|ber)?[.!]?\s*$",
+                            re.IGNORECASE)
+
+
+def _media_of(m):
+    """(file_id, nom, hajm) yoki None."""
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    if m.document:
+        return m.document.file_id, m.document.file_name or f"fayl_{stamp}", m.document.file_size
+    if m.photo:
+        p = m.photo[-1]
+        return p.file_id, f"rasm_{stamp}.jpg", p.file_size
+    for attr, ext in (("video", ".mp4"), ("audio", ".mp3"), ("voice", ".ogg"),
+                      ("animation", ".mp4"), ("video_note", ".mp4")):
+        obj = getattr(m, attr, None)
+        if obj:
+            return obj.file_id, getattr(obj, "file_name", None) or f"{attr}_{stamp}{ext}", obj.file_size
+    return None
+
+
+async def _save_to_pc(context, reply_to, media_msg):
+    import bridge
+    info = _media_of(media_msg)
+    if not info:
+        await reply_to.reply_text("Bu xabarda saqlanadigan fayl yo'q.")
+        return
+    file_id, name, size = info
+    if (size or 0) > bridge.RECV_MAX:
+        await reply_to.reply_text("❌ Telegram bot 20 MB dan katta faylni yuklab ololmaydi.")
+        return
+    path = bridge.save_path(name)
+    f = await context.bot.get_file(file_id)
+    await f.download_to_drive(path)
+    log.info("Kompyuterga saqlandi: %s", path)
+    await _send_md(context.bot, reply_to.chat_id,
+                   f"💾 Kompyuterga saqlandi: `{path}` ({bridge.size_text(os.path.getsize(path))})")
+
+
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         await update.message.reply_text("Kechirasiz, bu shaxsiy bot.")
@@ -153,6 +196,17 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     text = update.message.text
+    replied = update.message.reply_to_message
+    if replied is not None:
+        # Faylga "kompyuterga saqla" deb javob — saqlaymiz; matnga "nusxala" — clipboard'ga.
+        if _SAVE_RE.search(text) and _media_of(replied):
+            await _save_to_pc(context, update.message, replied)
+            return
+        src = replied.text or replied.caption
+        if _COPY_REPLY_RE.match(text) and src:
+            out = await asyncio.to_thread(jtools.execute_tool, "pc_clipboard_set", {"text": src}, chat_id)
+            await _send_md(context.bot, chat_id, out.replace(jtools.FINAL, ""))
+            return
     # "status" (slashsiz) model'ga borib, o'zidan aralash javob to'qirdi — buyruqqa bog'laymiz.
     alias = WORD_COMMANDS.get(text.strip().lower().strip("!?. "))
     if alias and update.message.forward_origin is None:
@@ -193,12 +247,22 @@ async def _show_pending_sends(update: Update, chat_id):
         jtools.PENDING_FILES.remove(item)
         try:
             with open(item["path"], "rb") as fh:
-                await update.effective_message.reply_photo(fh, caption=item["caption"])
+                if item.get("kind", "photo") == "document":
+                    await update.effective_message.reply_document(
+                        fh, filename=os.path.basename(item["path"]), caption=item["caption"])
+                else:
+                    await update.effective_message.reply_photo(fh, caption=item["caption"])
+        except Exception as e:
+            log.warning("Fayl yuborilmadi (%s): %s", item["path"], e)
+            await update.effective_message.reply_text(f"❌ Yuborib bo'lmadi: {os.path.basename(item['path'])}")
         finally:
-            try:
-                os.remove(item["path"])
-            except OSError:
-                pass
+            # Faqat vaqtinchalik fayllar (ekran rasmi, clipboard) o'chiriladi — egasining
+            # kompyuteridagi asl fayllar EMAS.
+            if item.get("temp", True):
+                try:
+                    os.remove(item["path"])
+                except OSError:
+                    pass
     for sid, p in list(jtools.PENDING_SENDS.items()):
         if p["chat_id"] != chat_id or p["shown"]:
             continue
@@ -228,6 +292,9 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     doc = msg.document
     if not doc:
+        return
+    if _SAVE_RE.search(msg.caption or ""):
+        await _save_to_pc(context, msg, msg)
         return
     chat_id = update.effective_chat.id
     if (doc.file_size or 0) > 20 * 1024 * 1024:
@@ -283,6 +350,9 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     msg = update.effective_message
     chat_id = update.effective_chat.id
+    if _SAVE_RE.search(msg.caption or ""):
+        await _save_to_pc(context, msg, msg)  # Gemini'ga yuborilmaydi
+        return
     if msg.photo:
         media, mime = msg.photo[-1], "image/jpeg"  # eng katta o'lcham
     elif msg.video or msg.video_note or msg.animation:

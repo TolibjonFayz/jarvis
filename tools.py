@@ -648,6 +648,38 @@ TOOLS = [
         },
     },
     {
+        "name": "pc_send_file",
+        "description": (
+            "Kompyuterdagi faylni egasiga Telegram'da yuboradi. query: fayl nomi yoki uning "
+            "so'zlari ('CV pdf', 'shartnoma') yoki to'liq yo'l; folder+latest: papkadagi eng "
+            "oxirgi fayl ('Downloads'dagi oxirgi fayl', 'oxirgi skrinshot')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": ["string", "null"]},
+                "folder": {"type": ["string", "null"],
+                           "enum": ["downloads", "desktop", "documents", "screenshots", None]},
+                "latest": {"type": ["boolean", "null"]},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "pc_clipboard_get",
+        "description": "Kompyuter clipboard'idagini (nusxalangan matn, rasm yoki fayllar) egasiga yuboradi.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "pc_clipboard_set",
+        "description": "Matnni kompyuter clipboard'iga qo'yadi (kompyuterda Ctrl+V qilsa chiqadi).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+    },
+    {
         "name": "pc_open_url",
         "description": "Havolani (http/https) kompyuter brauzerida ochadi",
         "input_schema": {
@@ -1534,6 +1566,77 @@ def execute_tool(name, tool_input, chat_id=None):
                 return FINAL + pc.media(action)
             except ValueError as e:
                 return f"❌ {e}"
+
+        if name == "pc_send_file":
+            import bridge
+            query, folder = (tool_input.get("query") or "").strip(), tool_input.get("folder")
+            if tool_input.get("latest") or (folder and not query):
+                path = bridge.latest_file(folder or "downloads")
+                if not path:
+                    return FINAL + f"📂 {folder or 'downloads'} papkasida fayl yo'q."
+            elif query:
+                cands = bridge.find_files(query)
+                if not cands:
+                    return FINAL + (f"🔍 «{query}» nomli fayl topilmadi (Desktop, Downloads, "
+                                    "Documents va loyihalar papkasida qidirdim).")
+                exact = os.path.basename(cands[0]).lower() == query.lower()
+                if len(cands) > 1 and not exact:
+                    lines = [f"🔍 «{query}» bo'yicha bir nechta fayl — qaysi biri?"]
+                    lines += [f"{i}. {bridge.describe(p)}\n   `{p}`" for i, p in enumerate(cands, 1)]
+                    return FINAL + "\n".join(lines)
+                path = cands[0]
+            else:
+                return "Qaysi faylni? Nomini (query) yoki papkasini (folder) ber."
+            if not bridge.allowed(path):
+                return FINAL + "🔒 Bu faylni yuborib bo'lmaydi (maxfiy yoki ruxsat etilmagan joyda)."
+            size = os.path.getsize(path)
+            if size > bridge.SEND_MAX:
+                return FINAL + f"❌ {bridge.describe(path)} — Telegram bot 50 MB dan kattasini yubora olmaydi."
+            PENDING_FILES.append({"chat_id": chat_id, "path": path, "caption": os.path.basename(path),
+                                  "kind": "document", "temp": False})
+            return FINAL + f"📎 Yuboryapman: {bridge.describe(path)}"
+
+        if name == "pc_clipboard_get":
+            import bridge
+            try:
+                kind, val = bridge.clipboard_get()
+            except RuntimeError as e:
+                return FINAL + f"❌ {e}"
+            if kind == "files":
+                ok = [f for f in val if not bridge.is_secret(f) and os.path.getsize(f) <= bridge.SEND_MAX][:5]
+                for f in ok:
+                    PENDING_FILES.append({"chat_id": chat_id, "path": f, "caption": os.path.basename(f),
+                                          "kind": "document", "temp": False})
+                skipped = len(val) - len(ok)
+                return FINAL + (f"📋 Clipboard'da {len(val)} ta fayl — {len(ok)} tasini yuboryapman"
+                                + (f" ({skipped} tasi maxfiy/katta yoki 5 tadan ortiq)" if skipped else "") + ".")
+            if kind == "image":
+                PENDING_FILES.append({"chat_id": chat_id, "path": val, "caption": "📋 Clipboard'dagi rasm",
+                                      "kind": "photo", "temp": True})
+                return FINAL + "📋 Clipboard'da rasm bor — yuboryapman."
+            if kind == "text":
+                if len(val) <= 3500:
+                    # Kod bloki: Telegram'da bosganda nusxalanadi, markdown buzmaydi
+                    return FINAL + f"📋 Kompyuter clipboard'i ({len(val)} belgi):\n```\n{val.replace('```', 'ʼʼʼ')}\n```"
+                import tempfile as _tf
+                path = os.path.join(_tf.gettempdir(), f"friday_clipboard_{int(time.time())}.txt")
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(val)
+                PENDING_FILES.append({"chat_id": chat_id, "path": path, "caption": "📋 clipboard.txt",
+                                      "kind": "document", "temp": True})
+                return FINAL + f"📋 Clipboard'da uzun matn ({len(val)} belgi) — fayl qilib yuboryapman."
+            return FINAL + "📋 Kompyuter clipboard'i bo'sh."
+
+        if name == "pc_clipboard_set":
+            import bridge
+            text = tool_input.get("text") or ""
+            if not text.strip():
+                return "Clipboard'ga qo'yiladigan matn bo'sh."
+            try:
+                bridge.clipboard_set(text)
+            except RuntimeError as e:
+                return FINAL + f"❌ {e}"
+            return FINAL + f"📋 Kompyuter clipboard'iga qo'yildi ({len(text)} belgi) — Ctrl+V qilsang chiqadi."
 
         if name == "pc_open_url":
             import pc

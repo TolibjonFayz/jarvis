@@ -23,6 +23,7 @@ Kompyuterda fonda ishlaydi — Windows'ga kirganda o'zi yonadi.
 | 💰 Oylik budjet | «ovqatga oyiga 2 mln budjet», «budjetim qalay?» — 80%/100% da ogohlantiradi |
 | 📅 Calendar, kun tartibi | «ertaga 15:00 da Aziz bilan uchrashuv qo'sh», «bu hafta nima bor?» (tadbir + eslatma + vazifa), «test uchrashuvni o'chir» (tugma bilan) |
 | ⏰ Eslatmalar | «30 daqiqadan keyin eslat», «har dushanba 18:00 yig'ilish», «eslatmalarni hammasini o'chir» |
+| 📲 Telefon ↔ kompyuter | «kompyuterdan CV ni yubor», «Downloads'dagi oxirgi faylni yubor», «oxirgi skrinshotni yubor» → fayl Telegram'ga (50 MB gacha; .env, *.session, kalitlar, token/parol fayllari, AppData va FRIDAY bazasi HECH QACHON). Rasm/faylni izohida «saqla» yoki unga javoban «kompyuterga saqla» → `Downloads\FRIDAY` (20 MB gacha, ustiga yozmaydi, rasm Gemini'ga bormaydi). Clipboard: «nusxala: <matn>» yoki xabarga javoban «nusxala» → kompyuterda Ctrl+V; «clipboardni yubor» → matn (bosib nusxalanadigan blok), Win+Shift+S rasmi yoki Explorer'da nusxalangan fayllar |
 | ⚽ Man City | Avtomatik: o'yin kuni ertalab (Chempionlar ligasining tungi o'yinlari oldingi kuni), 1 soat oldin, natija + gollar + qizil kartochkalar + APL'dagi o'rni; jiddiy yangiliklar (jarohat, rasmiy transfer, murabbiy, sud/ochko ayirish — mish-mish va fikrlarsiz, model filtrlaydi, 2 soatda bir). «Man City keyingi o'yini qachon?», `/city`. Manba: ESPN ochiq API (kalitsiz) |
 | 🎂 Yillik sanalar | «akamning tug'ilgan kuni 15-oktyabr» → har yili bir kun oldin va o'sha kuni ertalab (9:00 dan keyin, PC kech yoqilsa ham) eslatadi; yil aytilsa yoshini ham; haftalik hisobotda yaqin sanalar; `/sanalar` |
 | ✅ Todo | «ro'yxatga qo'sh: kitob o'qish», «vazifalarim?» |
@@ -109,6 +110,7 @@ digest.py     Kanallar dayjesti + javobsiz xabarlar
 forward.py    Forward qilingan xabar -> tugma bilan amal
 pc.py         Kompyuter: ekran, qulf, quvvat, holat, link
 nowplaying.py Hozir nima o'ynayapti + loop (Windows media sessiyasi)
+bridge.py     Telefon <-> kompyuter: fayl yuborish/saqlash, clipboard
 football.py   Man City: o'yinlar, natijalar, jiddiy yangiliklar (ESPN)
 commands.py   Ruxsat berilgan buyruqlar (build/test/git pull/dev server)
 projects.py   Git loyihalar (faqat o'qish)

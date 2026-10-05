@@ -158,7 +158,9 @@ _APOS_RE = re.compile(r"['‘’ʻʼ`]")
 
 # Router tool'siz shunday desa — bajarmasdan "bajardim" deyapti (gallyutsinatsiya).
 _CLAIM_RE = re.compile(
-    r"✅|qo.?shildi|yozildi|o.?chirildi|saqlandi|belgilandi|qo.?yildi",
+    r"✅|qo.?shildi|yozildi|o.?chirildi|saqlandi|belgilandi|qo.?yildi|"
+    # router tool'siz "ovoz oshirildi" deb yozgan edi (aslida hech narsa o'zgarmagan)
+    r"oshirildi|pasaytirildi|to.?xtatildi|ochildi|yoqildi|o.?tkazildi|qulflandi|o.?zgartirildi",
     re.IGNORECASE,
 )
 
@@ -183,7 +185,8 @@ _FORCED_ROUTES = [
 # Tool loop'da: javob amal bajarilganini aytsa, shunday tool chaqirilgan bo'lishi SHART.
 _ACTION_CLAIM_RE = re.compile(
     r"qo.?shildi|yozildi|o.?chirildi|saqlandi|belgilandi|qo.?yildi|bajarildi|"
-    r"bekor qilindi|yuborildi|pin qilindi|chiqildi",
+    r"bekor qilindi|yuborildi|pin qilindi|chiqildi|"
+    r"oshirildi|pasaytirildi|to.?xtatildi|ochildi|yoqildi|o.?tkazildi|qulflandi|o.?zgartirildi",
     re.IGNORECASE,
 )
 _MUTATING = (
@@ -208,6 +211,48 @@ _QUICK_MUSIC_RE = re.compile(
     r"\s*(bir\s+|biror\s+)?(qo.?shiq|musiqa|music)\s*(qo.?y|och|chal|yoq)(ib\s*ber)?\s*(chi|bro)?[\s!.?]*",
     re.IGNORECASE,
 )
+
+
+# Qisqa media/ovoz buyruqlari — modelsiz. Router "keyingisi"ga "ovoz pasaytirildi",
+# "volume up"ga "ovoz oshirildi" deb, hech narsa qilmasdan yozgan edi.
+_VOL_WORD = r"(ovoz|ovozni|ovozini|tovush|tovushni|volume|sound)"
+_QUICK_MEDIA = [
+    # (regex, action, faqat yaqinda musiqa qo'yilgan bo'lsa)
+    (re.compile(rf"{_VOL_WORD}\s*(\d{{1,3}})\s*(%|foiz)?(\s*(qil|qo.?y|ga))?"), "volume_set", False),
+    (re.compile(rf"{_VOL_WORD}\s*(ni\s*)?(balandlat\w*|oshir\w*|ko.?tar\w*|baland\w*|up|\+)|louder|balandroq"),
+     "volume_up", False),
+    (re.compile(rf"{_VOL_WORD}\s*(ni\s*)?(pasaytir\w*|pasay\w*|kamaytir\w*|past\w*|down|-)|quieter|pastroq"),
+     "volume_down", False),
+    (re.compile(rf"{_VOL_WORD}\s*(ni\s*)?(o.?chir\w*|mute)|mute|jim"), "mute", False),
+    (re.compile(rf"{_VOL_WORD}\s*(ni\s*)?yoq\w*|unmute"), "unmute", False),
+    (re.compile(r"(musiqa|qo.?shiq)\w*\s*(ni\s*)?(to.?xtat\w*|pauza|pause)|pause"), "play_pause", False),
+    (re.compile(r"(keyingi|next)\s*(qo.?shiq|musiqa|trek)\w*|(qo.?shiq|musiqa)\w*\s*(ni\s*)?o.?tkaz\w*"),
+     "next", False),
+    (re.compile(r"(oldingi|previous)\s*(qo.?shiq|musiqa|trek)\w*"), "prev", False),
+    # Ikki ma'noli qisqa so'zlar — faqat musiqa yaqinda boshqarilgan bo'lsa:
+    (re.compile(r"keyingisi|keyingi|next|o.?tkaz|boshqasi"), "next", True),
+    (re.compile(r"oldingisi|oldingi|previous|orqaga"), "prev", True),
+    (re.compile(r"to.?xtat|pauza|davom(\s*et)?|play"), "play_pause", True),
+]
+MUSIC_CONTEXT_SEC = 3 * 3600
+
+
+def quick_media(text, chat_id):
+    """(action, value) yoki None. Faqat qisqa (≤5 so'z) buyruqlar — gap ichida emas."""
+    t = _APOS_RE.sub("'", (text or "").lower()).strip(" !.?,")
+    t = re.sub(r"\s*(bro|iltimos|ber|chi)$", "", t).strip()
+    if not t or len(t.split()) > 5:
+        return None
+    try:
+        recent = time.time() - float(memory.get_setting(chat_id, "music_ts", "0") or 0) < MUSIC_CONTEXT_SEC
+    except ValueError:
+        recent = False
+    for rx, action, needs_music in _QUICK_MEDIA:
+        m = rx.fullmatch(t)
+        if m and (recent or not needs_music):
+            value = int(m.group(2)) if action == "volume_set" else None
+            return action, value
+    return None
 
 
 def forced_categories(text):
@@ -534,8 +579,16 @@ def respond(chat_id, user_text, route_text=None):
             brain.after_turn(chat_id, HISTORY_WINDOW)
             return final
 
+    quick = None
     if _QUICK_MUSIC_RE.fullmatch(route):
-        final = execute_tool("pc_play_music", {}, chat_id).replace(FINAL, "")
+        quick = ("pc_play_music", {})
+    else:
+        qm = quick_media(route, chat_id)
+        if qm:
+            quick = ("pc_media", {"action": qm[0], "value": qm[1]})
+    if quick:
+        final = execute_tool(quick[0], quick[1], chat_id).replace(FINAL, "")
+        log.info("tez buyruq %s %s -> %s", quick[0], quick[1], final[:60])
         memory.add_message(chat_id, "user", user_text)
         memory.add_message(chat_id, "assistant", final)
         return final

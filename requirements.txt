@@ -15,3 +15,4 @@ google-api-python-client>=2.100
 google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
 psutil>=5.9
+pycaw>=20240210

@@ -534,11 +534,18 @@ TOOLS = [
     },
     {
         "name": "pc_media",
-        "description": "Kompyuterdagi pleer: play_pause, next, prev, volume_up, volume_down, mute",
+        "description": (
+            "Kompyuterdagi pleer va ovoz: play_pause, next, prev, volume_up, volume_down, "
+            "volume_set (value=0-100), mute, unmute, volume_get"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["play_pause", "next", "prev", "volume_up", "volume_down", "mute"]},
+                "action": {"type": "string", "enum": [
+                    "play_pause", "next", "prev", "volume_up", "volume_down",
+                    "volume_set", "mute", "unmute", "volume_get",
+                ]},
+                "value": {"type": ["number", "null"]},
             },
             "required": ["action"],
         },
@@ -1347,12 +1354,19 @@ def execute_tool(name, tool_input, chat_id=None):
 
         if name == "pc_play_music":
             import pc
+            memory.set_setting(chat_id, "music_ts", time.time())
             return FINAL + pc.play_music(tool_input.get("query") or "")
 
         if name == "pc_media":
             import pc
+            action, value = tool_input.get("action"), tool_input.get("value")
+            vol = {"volume_up": "up", "volume_down": "down", "volume_set": "set",
+                   "mute": "mute", "unmute": "unmute", "volume_get": "get"}
             try:
-                return FINAL + pc.media(tool_input.get("action"))
+                if action in vol:
+                    return FINAL + pc.volume(vol[action], value)  # haqiqiy daraja bilan
+                memory.set_setting(chat_id, "music_ts", time.time())
+                return FINAL + pc.media(action)
             except ValueError as e:
                 return f"❌ {e}"
 

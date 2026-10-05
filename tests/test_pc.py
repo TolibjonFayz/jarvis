@@ -166,3 +166,38 @@ def test_quick_music_skips_model(monkeypatch, llm):
 
 def test_song_name_form_routes_to_pc():
     assert agent.forced_categories("Ummon guruhining Yolg'izim qo'shig'ini qo'y") == ["pc"]
+
+
+# --- Tez media buyruqlari (2026-10-05: "keyingisi" -> "ovoz pasaytirildi" deb to'qigan) ---
+
+@pytest.mark.parametrize("text,expected", [
+    ("Volume Up", ("volume_up", None)), ("ovozni balandlat", ("volume_up", None)),
+    ("ovozni 50% qil", ("volume_set", 50)), ("ovoz 70", ("volume_set", 70)),
+    ("ovozni pasaytir", ("volume_down", None)), ("ovozni o'chir", ("mute", None)),
+    ("musiqani to'xtat", ("play_pause", None)), ("keyingi qo'shiq", ("next", None)),
+    ("ovozli xabar yubor", None), ("eslatmani o'chir", None), ("salom bro", None),
+    ("Keyingisi", None), ("to'xtat", None),   # musiqa qo'yilmagan — ikki ma'noli
+])
+def test_quick_media_without_music_context(text, expected):
+    assert agent.quick_media(text, CHAT) == expected
+
+
+@pytest.mark.parametrize("text,action", [("Keyingisi", "next"), ("keyingisi bro", "next"),
+                                         ("to'xtat", "play_pause"), ("oldingisi", "prev")])
+def test_quick_media_with_music_context(text, action):
+    import memory, time
+    memory.set_setting(CHAT, "music_ts", time.time())
+    assert agent.quick_media(text, CHAT)[0] == action
+
+
+def test_volume_command_reports_real_level(monkeypatch, llm):
+    script = llm()  # model chaqirilmasligi kerak
+    seen = []
+    monkeypatch.setattr(pc, "volume", lambda a, v=None: seen.append((a, v)) or "🔊 Ovoz: 30% → 40% — Dinamik")
+    assert agent.respond(CHAT, "Volume up") == "🔊 Ovoz: 30% → 40% — Dinamik"
+    assert seen == [("up", None)] and script.requests == []
+
+
+def test_router_claim_without_tool_is_rejected():
+    assert agent._CLAIM_RE.search("🔉 Ovoz pasaytirildi. Keyingi qanday yordam kerak?")
+    assert agent._ACTION_CLAIM_RE.search("Ovoz yana oshirildi")

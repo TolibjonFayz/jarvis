@@ -181,3 +181,52 @@ def media(action, times=1):
         ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
         ctypes.windll.user32.keybd_event(vk, 0, 2, 0)  # KEYEVENTF_KEYUP
     return label
+
+
+# --- Ovoz darajasi (Windows Core Audio, pycaw) ---
+# Media klavishlari natijani bilmaydi — bu yerda darajani O'QIB, haqiqiy raqamni aytamiz
+# (avval model "ovoz oshirildi" deb yolg'on yozgan edi).
+
+def _endpoint():
+    import comtypes
+    from pycaw.pycaw import AudioUtilities
+
+    comtypes.CoInitialize()  # bot uni fon oqimida chaqiradi — COM har oqimda alohida
+    dev = AudioUtilities.GetSpeakers()
+    return dev, dev.EndpointVolume
+
+
+def volume(action, value=None):
+    """action: up, down, set (value=0..100), mute, unmute, get. Natija: haqiqiy daraja."""
+    import comtypes
+
+    dev, ep = _endpoint()
+    try:
+        before = round(ep.GetMasterVolumeLevelScalar() * 100)
+        if action == "up":
+            target = min(100, before + int(value or 10))
+        elif action == "down":
+            target = max(0, before - int(value or 10))
+        elif action == "set":
+            if value is None:
+                raise ValueError("necha foiz? (0-100)")
+            target = max(0, min(100, int(value)))
+        else:
+            target = before
+        if action in ("mute", "unmute"):
+            ep.SetMute(1 if action == "mute" else 0, None)
+        elif action != "get":
+            ep.SetMasterVolumeLevelScalar(target / 100, None)
+            if target > 0 and ep.GetMute():
+                ep.SetMute(0, None)
+        after = round(ep.GetMasterVolumeLevelScalar() * 100)
+        muted = bool(ep.GetMute())
+        name = getattr(dev, "FriendlyName", "") or "ovoz qurilmasi"
+    finally:
+        comtypes.CoUninitialize()
+    icon = "🔇" if muted else ("🔊" if after >= before else "🔉")
+    if action == "get":
+        return f"{icon} Ovoz: {after}%{' (o‘chiq)' if muted else ''} — {name}"
+    if action in ("mute", "unmute"):
+        return f"{icon} Ovoz {'o‘chirildi' if muted else 'yoqildi'} ({after}%) — {name}"
+    return f"{icon} Ovoz: {before}% → {after}% — {name}"

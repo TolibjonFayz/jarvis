@@ -661,6 +661,8 @@ TOOLS = [
                 "folder": {"type": ["string", "null"],
                            "enum": ["downloads", "desktop", "documents", "screenshots", None]},
                 "latest": {"type": ["boolean", "null"]},
+                "pick": {"type": ["number", "null"],
+                         "description": "oldingi 'qaysi biri?' ro'yxatidagi raqam"},
             },
             "required": [],
         },
@@ -759,7 +761,10 @@ import itertools
 _send_seq = itertools.count(1)
 PENDING_SENDS = {}
 # Tool tayyorlagan fayllar (ekran rasmi) — bot javobdan keyin yuboradi va o'chiradi.
-PENDING_FILES = []  # [{chat_id, path, caption}]
+PENDING_FILES = []  # [{chat_id, path, caption, kind, temp}]
+# "qaysi biri?" ro'yxati — "2" yoki "2-sini yubor" deyilsa shundan olinadi.
+LAST_CANDIDATES = {}  # chat_id -> (ts, [yo'llar])
+PICK_TTL = 15 * 60
 
 # Hafta kunlari (0=Dushanba ... 6=Yakshanba — Python weekday tartibi)
 _DAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
@@ -1570,7 +1575,15 @@ def execute_tool(name, tool_input, chat_id=None):
         if name == "pc_send_file":
             import bridge
             query, folder = (tool_input.get("query") or "").strip(), tool_input.get("folder")
-            if tool_input.get("latest") or (folder and not query):
+            pick = tool_input.get("pick")
+            if pick:
+                ts, cands = LAST_CANDIDATES.get(chat_id, (0, []))
+                if time.time() - ts > PICK_TTL or not cands:
+                    return FINAL + "Tanlash uchun ro'yxat yo'q — fayl nomini qaytadan ayt."
+                if not 1 <= int(pick) <= len(cands):
+                    return FINAL + f"Ro'yxatda 1–{len(cands)} raqamlar bor."
+                path = cands[int(pick) - 1]
+            elif tool_input.get("latest") or (folder and not query):
                 path = bridge.latest_file(folder or "downloads")
                 if not path:
                     return FINAL + f"📂 {folder or 'downloads'} papkasida fayl yo'q."
@@ -1579,21 +1592,26 @@ def execute_tool(name, tool_input, chat_id=None):
                 if not cands:
                     return FINAL + (f"🔍 «{query}» nomli fayl topilmadi (Desktop, Downloads, "
                                     "Documents va loyihalar papkasida qidirdim).")
-                exact = os.path.basename(cands[0]).lower() == query.lower()
-                if len(cands) > 1 and not exact:
-                    lines = [f"🔍 «{query}» bo'yicha bir nechta fayl — qaysi biri?"]
+                best = bridge.best_match(query, cands)
+                if len(cands) > 1 and not best:
+                    LAST_CANDIDATES[chat_id] = (time.time(), cands)
+                    lines = [f"🔍 «{query}» bo'yicha bir nechta fayl — qaysi biri? (masalan: «2»)"]
                     lines += [f"{i}. {bridge.describe(p)}\n   `{p}`" for i, p in enumerate(cands, 1)]
                     return FINAL + "\n".join(lines)
-                path = cands[0]
+                path = best or cands[0]
             else:
                 return "Qaysi faylni? Nomini (query) yoki papkasini (folder) ber."
             if not bridge.allowed(path):
                 return FINAL + "🔒 Bu faylni yuborib bo'lmaydi (maxfiy yoki ruxsat etilmagan joyda)."
             size = os.path.getsize(path)
             if size > bridge.SEND_MAX:
-                return FINAL + f"❌ {bridge.describe(path)} — Telegram bot 50 MB dan kattasini yubora olmaydi."
+                return FINAL + f"❌ {bridge.describe(path)} — Telegram 2 GB dan kattasini qabul qilmaydi."
+            LAST_CANDIDATES.pop(chat_id, None)
             PENDING_FILES.append({"chat_id": chat_id, "path": path, "caption": os.path.basename(path),
                                   "kind": "document", "temp": False})
+            if size > bridge.BOT_SEND_MAX:
+                return FINAL + (f"📎 Yuboryapman: {bridge.describe(path)}\nKatta fayl — «Saqlangan "
+                                "xabarlar»ga keladi, foizini shu yerda ko'rsatib turaman.")
             return FINAL + f"📎 Yuboryapman: {bridge.describe(path)}"
 
         if name == "pc_clipboard_get":

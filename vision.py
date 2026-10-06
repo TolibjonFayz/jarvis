@@ -9,6 +9,7 @@ xabarlari, xarajatlar YUBORILMAYDI. Javobni baribir Groq'dagi agent yozadi
 import base64
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 
@@ -57,7 +58,23 @@ def describe(image_bytes, mime="image/jpeg", note=""):
                  + (f"\nEgasining izohi: {note}" if note else "")},
     ]
     body = json.dumps({"contents": [{"parts": parts}]}).encode()
+    # Gemini 503 (band) odatda bir necha soniyada o'tadi — avval darrov "keyinroq yubor"
+    # deyilib, egasi rasmni qayta yuborishga majbur bo'lardi.
     last = ""
+    for attempt in range(3):
+        if attempt:
+            time.sleep(4 * attempt)
+        text, last, transient = _try_models(body)
+        if text:
+            return text
+        if not transient:
+            break
+    raise VisionError(last or "javob yo'q")
+
+
+def _try_models(body):
+    """(matn | None, oxirgi xato, faqat vaqtinchalik xatolar edimi)."""
+    last, transient = "", True
     for model in config.VISION_MODELS:
         req = urllib.request.Request(
             API.format(model), data=body, method="POST",
@@ -71,6 +88,8 @@ def describe(image_bytes, mime="image/jpeg", note=""):
             # 429 = limit, 404 = model yo'q, 5xx = band — keyingi modelga.
             last = f"{model}: HTTP {e.code}"
             log.warning("Gemini %s", last)
+            if e.code < 500:
+                transient = False  # 429 limit / 404 — kutish yordam bermaydi
             continue
         except OSError as e:
             last = f"{model}: {e}"
@@ -82,6 +101,7 @@ def describe(image_bytes, mime="image/jpeg", note=""):
             p.get("text", "") for p in (cands[0].get("content", {}).get("parts", []) if cands else [])
         ).strip()
         if text:
-            return text
+            return text, last, transient
         last = f"{model}: bo'sh javob ({(cands[0].get('finishReason') if cands else 'no candidates')})"
-    raise VisionError(last or "javob yo'q")
+        transient = False
+    return None, last, transient

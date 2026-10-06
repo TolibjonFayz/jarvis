@@ -62,13 +62,23 @@ async def _send_md(bot, chat_id, text, reply_to=None):
     """Model javobini (Markdown) Telegram HTML qilib yuboradi, uzunini bo'laklaydi.
     HTML'ni Telegram rad etsa — belgilarsiz oddiy matn."""
     for chunk in fmt.split(text) or ["(javob bo'sh chiqdi)"]:
-        try:
-            await bot.send_message(
-                chat_id, fmt.to_html(chunk), parse_mode=ParseMode.HTML,
-                reply_to_message_id=reply_to, disable_web_page_preview=True,
-            )
-        except BadRequest:
-            await bot.send_message(chat_id, fmt.to_plain(chunk), reply_to_message_id=reply_to)
+        # Wi-Fi uzilib qolsa javob yo'qolib, egasi qayta yozishga majbur bo'lardi —
+        # 3 marta urinamiz (2 s, 5 s oraliq).
+        for attempt in range(3):
+            try:
+                try:
+                    await bot.send_message(
+                        chat_id, fmt.to_html(chunk), parse_mode=ParseMode.HTML,
+                        reply_to_message_id=reply_to, disable_web_page_preview=True,
+                    )
+                except BadRequest:
+                    await bot.send_message(chat_id, fmt.to_plain(chunk), reply_to_message_id=reply_to)
+                break
+            except (TimedOut, NetworkError) as e:
+                if attempt == 2 or isinstance(e, BadRequest):  # BadRequest ham NetworkError'dan
+                    raise
+                log.warning("Xabar yuborilmadi (%s), qayta urinaman", e.__class__.__name__)
+                await asyncio.sleep(2 if attempt == 0 else 5)
 
 
 async def _respond(context, chat_id, *args):
@@ -156,19 +166,97 @@ _COPY_REPLY_RE = re.compile(r"^\s*((kompyuter|pc)\w*\s*(ga\s*)?)?(nusxala\w*|cop
 
 
 def _media_of(m):
-    """(file_id, nom, hajm) yoki None."""
+    """(file_id, saqlash nomi, hajm, asl nomi | None) yoki None."""
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     if m.document:
-        return m.document.file_id, m.document.file_name or f"fayl_{stamp}", m.document.file_size
+        d = m.document
+        return d.file_id, d.file_name or f"fayl_{stamp}", d.file_size, d.file_name
     if m.photo:
         p = m.photo[-1]
-        return p.file_id, f"rasm_{stamp}.jpg", p.file_size
+        return p.file_id, f"rasm_{stamp}.jpg", p.file_size, None
     for attr, ext in (("video", ".mp4"), ("audio", ".mp3"), ("voice", ".ogg"),
                       ("animation", ".mp4"), ("video_note", ".mp4")):
         obj = getattr(m, attr, None)
         if obj:
-            return obj.file_id, getattr(obj, "file_name", None) or f"{attr}_{stamp}{ext}", obj.file_size
+            orig = getattr(obj, "file_name", None)
+            return obj.file_id, orig or f"{attr}_{stamp}{ext}", obj.file_size, orig
     return None
+
+
+def _eta(sec):
+    sec = int(sec)
+    return f"{sec // 60} daq {sec % 60} s" if sec >= 60 else f"{sec} s"
+
+
+class _Progress:
+    """Telethon progress (userbot oqimida) -> holat xabarini bot loop'ida yangilaydi.
+    Telegram tahrirlash limitiga urilmaslik uchun ~3 s da bir marta."""
+
+    def __init__(self, status_msg, title, loop):
+        self.msg, self.title, self.loop = status_msg, title, loop
+        self.start, self.last_t, self.last_pct = time.time(), 0.0, -1
+
+    def text(self, cur, total):
+        import bridge
+        pct = int(cur * 100 / total) if total else 0
+        speed = cur / max(time.time() - self.start, 0.1)
+        eta = (total - cur) / speed if speed else 0
+        bar = "▓" * (pct // 10) + "░" * (10 - pct // 10)
+        return (f"{self.title}\n{bar} {pct}%\n{bridge.size_text(cur)} / {bridge.size_text(total)}"
+                f" · {bridge.size_text(speed)}/s · ~{_eta(eta)} qoldi")
+
+    def __call__(self, cur, total):
+        now = time.time()
+        pct = int(cur * 100 / total) if total else 0
+        if now - self.last_t < 3 or pct == self.last_pct or pct >= 100:
+            return
+        self.last_t, self.last_pct = now, pct
+        asyncio.run_coroutine_threadsafe(self._edit(self.text(cur, total)), self.loop)
+
+    async def _edit(self, text):
+        try:
+            await self.msg.edit_text(text)
+        except Exception:
+            pass  # "message is not modified" / tarmoq — keyingisida
+
+
+_BG_TASKS = set()
+
+
+def _bg(coro):
+    """Fon vazifasi (uzoq yuklash) — havola saqlanadi, aks holda GC to'xtatib qo'yishi mumkin."""
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+    return task
+
+
+def _userbot_ready():
+    return bool(config.TG_API_ID and config.TG_API_HASH)
+
+
+async def _save_big_to_pc(context, reply_to, size, name, orig):
+    """>20MB: bot API yuklay olmaydi — egasining akkaunti (userbot) orqali, foiz bilan."""
+    import bridge
+    status = await reply_to.reply_text(f"📥 {name} ({bridge.size_text(size)}) — kompyuterga yuklanmoqda...")
+    prog = _Progress(status, f"📥 {name}", asyncio.get_running_loop())
+    path = bridge.save_path(name)
+    try:
+        got = await asyncio.to_thread(userbot.download_from_bot_chat, context.bot.username,
+                                      size, orig, path, prog)
+    except Exception as e:
+        got = None
+        log.warning("Katta fayl yuklanmadi: %s", e)
+    if not got:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        await status.edit_text(f"❌ {name} yuklab olinmadi (userbot xabarni topmadi yoki tarmoq uzildi).")
+        return
+    log.info("Kompyuterga saqlandi (userbot): %s", path)
+    await status.edit_text(f"💾 Kompyuterga saqlandi: {path} ({bridge.size_text(size)}, "
+                           f"{_eta(time.time() - prog.start)})")
 
 
 async def _save_to_pc(context, reply_to, media_msg):
@@ -177,16 +265,41 @@ async def _save_to_pc(context, reply_to, media_msg):
     if not info:
         await reply_to.reply_text("Bu xabarda saqlanadigan fayl yo'q.")
         return
-    file_id, name, size = info
+    file_id, name, size, orig = info
     if (size or 0) > bridge.RECV_MAX:
-        await reply_to.reply_text("❌ Telegram bot 20 MB dan katta faylni yuklab ololmaydi.")
+        if (size or 0) > bridge.SEND_MAX:
+            await reply_to.reply_text(f"❌ Fayl juda katta ({bridge.size_text(size)}) — 2 GB gacha.")
+        elif not _userbot_ready():
+            await reply_to.reply_text("❌ 20 MB dan katta fayl uchun userbot kerak (setup_userbot.py).")
+        else:
+            # Fonda: yuklash daqiqalab davom etadi, bot boshqa xabarlarga javob berib tursin.
+            _bg(_save_big_to_pc(context, reply_to, size, name, orig))
         return
     path = bridge.save_path(name)
-    f = await context.bot.get_file(file_id)
-    await f.download_to_drive(path)
+    f = await context.bot.get_file(file_id, read_timeout=120)
+    await f.download_to_drive(path, read_timeout=300)
     log.info("Kompyuterga saqlandi: %s", path)
     await _send_md(context.bot, reply_to.chat_id,
                    f"💾 Kompyuterga saqlandi: `{path}` ({bridge.size_text(os.path.getsize(path))})")
+
+
+async def _send_big_file(msg, path):
+    """>45MB: bot API 50MB dan kattasini yubora olmaydi — userbot «Saqlangan xabarlar»ga, foiz bilan."""
+    import bridge
+    name, size = os.path.basename(path), os.path.getsize(path)
+    status = await msg.reply_text(f"📤 {name} ({bridge.size_text(size)}) — «Saqlangan xabarlar»ga yuklanmoqda...")
+    prog = _Progress(status, f"📤 {name}", asyncio.get_running_loop())
+    try:
+        ok = await asyncio.to_thread(userbot.send_to_saved, path, f"📦 {name}", prog)
+    except Exception as e:
+        ok = False
+        log.warning("Katta fayl yuborilmadi (%s): %s", path, e)
+    if ok:
+        log.info("Katta fayl yuborildi: %s", path)
+        await status.edit_text(f"✅ {name} ({bridge.size_text(size)}) «Saqlangan xabarlar»ga yuborildi "
+                               f"· {_eta(time.time() - prog.start)}")
+    else:
+        await status.edit_text(f"❌ {name} yuborilmadi (tarmoq uzildi?). Qayta so'rab ko'r.")
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -243,15 +356,22 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _show_pending_sends(update: Update, chat_id):
     """Tayyorlangan (hali yuborilmagan) Telegram xabarlar uchun tasdiq tugmalari
     va tool navbatga qo'ygan fayllar (ekran rasmi)."""
+    import bridge
     for item in [f for f in jtools.PENDING_FILES if f["chat_id"] == chat_id]:
         jtools.PENDING_FILES.remove(item)
+        if item.get("kind") == "document" and os.path.getsize(item["path"]) > bridge.BOT_SEND_MAX:
+            _bg(_send_big_file(update.effective_message, item["path"]))
+            continue
         try:
+            await update.effective_chat.send_action(ChatAction.UPLOAD_DOCUMENT)
             with open(item["path"], "rb") as fh:
                 if item.get("kind", "photo") == "document":
                     await update.effective_message.reply_document(
-                        fh, filename=os.path.basename(item["path"]), caption=item["caption"])
+                        fh, filename=os.path.basename(item["path"]), caption=item["caption"],
+                        write_timeout=600, read_timeout=120)
                 else:
-                    await update.effective_message.reply_photo(fh, caption=item["caption"])
+                    await update.effective_message.reply_photo(
+                        fh, caption=item["caption"], write_timeout=300, read_timeout=120)
         except Exception as e:
             log.warning("Fayl yuborilmadi (%s): %s", item["path"], e)
             await update.effective_message.reply_text(f"❌ Yuborib bo'lmadi: {os.path.basename(item['path'])}")
@@ -1459,7 +1579,12 @@ def main():
     config.check()
     memory.init_db()
 
-    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(_set_commands).build()
+    # Standart 5 s chegara fayl yuborishga yetmasdi (4 MB rasm "Timed out").
+    app = (
+        Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(_set_commands)
+        .connect_timeout(20).read_timeout(30).write_timeout(120).pool_timeout(20)
+        .build()
+    )
     app.add_error_handler(on_error)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))

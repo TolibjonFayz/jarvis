@@ -15,6 +15,7 @@ from groq import Groq, RateLimitError
 
 import brain
 import memory
+import tools
 from config import GROQ_API_KEY, MODEL, MAX_TOKENS
 from tools import FINAL, TOOLS, execute_tool
 
@@ -355,9 +356,28 @@ _CLIP_GET_RE = re.compile(
 )
 
 
-def quick_bridge(text):
+# "qaysi biri?" ro'yxatidan tanlash: "2", "2-sini yubor", "ikkinchisini". Avval model
+# raqamni tushunmay, egasi fayl nomini to'liq yozishga majbur bo'lardi.
+_ORDINALS = {"birinchi": 1, "ikkinchi": 2, "uchinchi": 3, "to'rtinchi": 4, "tortinchi": 4,
+             "beshinchi": 5}
+_PICK_RE = re.compile(
+    r"^\s*(\d{1,2}|birinchi|ikkinchi|uchinchi|to'?rtinchi|beshinchi|oxirgi)\w*"
+    r"(\s*-?\s*(chi|chisi|si|sini|ni|isini))?\s*(ni|sini)?\s*(fayl\w*\s*)?(yubor\w*)?\s*(bro|ber)?[.!]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def quick_bridge(text, chat_id=None):
     """(tool, args) yoki None."""
     t = (text or "").strip()
+    if chat_id is not None:
+        ts, cands = tools.LAST_CANDIDATES.get(chat_id, (0, []))
+        m = _PICK_RE.match(_APOS_RE.sub("'", t))
+        if m and cands and time.time() - ts <= tools.PICK_TTL:
+            w = m.group(1).lower()
+            n = len(cands) if w == "oxirgi" else int(w) if w.isdigit() else _ORDINALS.get(w, 0)
+            if n:
+                return "pc_send_file", {"pick": n}
     m = _CLIP_SET_RE.match(t)
     if m and m.group(1).strip():
         return "pc_clipboard_set", {"text": m.group(1).strip()}
@@ -698,7 +718,7 @@ def respond(chat_id, user_text, route_text=None):
             brain.after_turn(chat_id, HISTORY_WINDOW)
             return final
 
-    quick = quick_bridge(route)
+    quick = quick_bridge(route, chat_id)
     if quick:
         pass
     elif _QUICK_MUSIC_RE.fullmatch(route):

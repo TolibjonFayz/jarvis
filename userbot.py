@@ -184,6 +184,56 @@ def download_media(chat_id, message_id, dest):
         return None
 
 
+# --- Katta fayllar (bot API: yuborish 50MB, yuklash 20MB; akkaunt orqali — 2GB) ---
+
+def _big_timeout(size):
+    return min(2 * 3600, max(600, size / (150 * 1024)))  # sekin Wi-Fi'da ham (150 KB/s)
+
+
+def send_to_saved(path, caption="", progress=None):
+    """Faylni egasining «Saqlangan xabarlar»iga yuboradi. progress(sent, total) — userbot
+    oqimida chaqiriladi. True/False."""
+    if not _ensure_started():
+        return False
+
+    async def go():
+        # upload_file: katta bo'laklar (512KB) — tezroq; foiz shu yerda hisoblanadi
+        handle = await _client.upload_file(path, part_size_kb=512, file_name=os.path.basename(path),
+                                           progress_callback=progress)
+        await _client.send_file("me", handle, caption=caption, force_document=True)
+        return True
+    return _run(go(), timeout=_big_timeout(os.path.getsize(path)))
+
+
+def download_from_bot_chat(bot_username, size, name, dest, progress=None, max_age=600):
+    """Egasi botga yuborgan katta faylni (o'z akkaunti tomonidan) yuklab oladi.
+    Bot va akkauntda xabar raqamlari har xil — fayl hajmi (va nomi) bo'yicha topamiz."""
+    if not _ensure_started():
+        return None
+
+    async def go():
+        import datetime as _dt
+        now = _dt.datetime.now(_dt.timezone.utc)
+        target = None
+        async for m in _client.iter_messages(bot_username, limit=30):
+            if not m.out or not m.file or (now - m.date).total_seconds() > max_age:
+                continue
+            if m.file.size == size and (not name or not m.file.name or m.file.name == name):
+                target = m
+                break
+        if target is None:
+            return None
+        written = 0
+        with open(dest, "wb") as f:
+            async for chunk in _client.iter_download(target, request_size=512 * 1024):
+                f.write(chunk)
+                written += len(chunk)
+                if progress:
+                    progress(written, size)
+        return dest
+    return _run(go(), timeout=_big_timeout(size))
+
+
 # --- Dayjest (kanallar) va javobsiz xabarlar ---
 
 def _is_broadcast(d):

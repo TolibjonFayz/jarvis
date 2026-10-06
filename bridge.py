@@ -6,7 +6,9 @@
 - save_incoming: Telegram'dan kelgan fayl -> Downloads\\FRIDAY (ustiga yozmaydi).
 - clipboard_set / clipboard_get: matn, rasm (Win+Shift+S) va Explorer'da nusxalangan fayllar.
 
-Telegram cheklovlari: bot 50MB gacha yubora oladi, lekin faqat 20MB gacha yuklab oladi.
+Telegram cheklovlari: bot API 50MB gacha yuboradi va faqat 20MB gacha yuklab oladi.
+Kattaroq fayllar (2GB gacha) egasining akkaunti (userbot) orqali: kompyuterdan —
+«Saqlangan xabarlar»ga, telefondan — bot chatidagi xabar akkaunt tomonidan yuklanadi.
 """
 import ctypes
 import datetime
@@ -19,8 +21,9 @@ from ctypes import wintypes
 
 from config import BASE_DIR, READ_ROOT
 
-SEND_MAX = 50 * 1024 * 1024
-RECV_MAX = 20 * 1024 * 1024
+SEND_MAX = 2000 * 1024 * 1024     # Telegram'ning oddiy akkaunt chegarasi (userbot orqali)
+BOT_SEND_MAX = 45 * 1024 * 1024   # bundan kichigi bot orqali (API chegarasi 50MB, zaxira bilan)
+RECV_MAX = 20 * 1024 * 1024       # bot API yuklab olish chegarasi; kattasi — userbot
 HOME = os.path.expanduser("~")
 SAVE_DIR = os.path.join(HOME, "Downloads", "FRIDAY")
 
@@ -118,6 +121,27 @@ def find_files(query, limit=5, time_budget=6.0):
     exact = [p for p in found if os.path.basename(p).lower() == q.lower()]
     found.sort(key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0, reverse=True)
     return (exact + [p for p in found if p not in exact])[:limit]
+
+
+def _norm(s):
+    return " ".join(re.sub(r"[^0-9a-zа-яёʻ'’]+", " ", s.lower()).split())
+
+
+def best_match(query, cands):
+    """Aniq tanlov bo'lsa — o'sha yo'l, aks holda None ("qaysi biri?" so'raladi).
+    Aniq: nomi so'rovga teng yoki so'rov bilan BOSHLANADIGAN yagona fayl
+    ("Ryan Gosling" -> Ryan_Gosling_by_Gage_Skidmore.jpg, qo'shiqlar emas)."""
+    q = _norm(query)
+    if not q:
+        return None
+    exact = [p for p in cands if _norm(os.path.basename(p)) == q
+             or _norm(os.path.splitext(os.path.basename(p))[0]) == q]
+    if len(exact) == 1:
+        return exact[0]
+    starts = [p for p in cands if _norm(os.path.basename(p)).startswith(q)]
+    if len(starts) == 1:
+        return starts[0]
+    return cands[0] if len(cands) == 1 else None
 
 
 def latest_file(folder="downloads"):

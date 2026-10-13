@@ -15,6 +15,9 @@ TG_API_HASH = os.getenv("TG_API_HASH", "")
 # Server (Railway) uchun: sessiyani fayl o'rniga STRING sifatida env'da saqlaymiz.
 # gen_session.py bilan yaratasiz. Bo'sh bo'lsa — lokal fayl sessiyasi ishlatiladi.
 TG_SESSION = os.getenv("TG_SESSION", "")
+# Cloudflare Worker (relay/): PC o'chiq bo'lsa ham eslatmalarni bot nomidan yuboradi
+RELAY_URL = os.getenv("RELAY_URL", "").rstrip("/")
+RELAY_KEY = os.getenv("RELAY_KEY", "")
 
 # Guruh moderatsiyasi: nechta ogohlantirishdan KEYIN chiqarib yuborilsin.
 # 2 = ikki marta ogohlantiriladi, 3-buzilishda guruhdan chiqariladi.

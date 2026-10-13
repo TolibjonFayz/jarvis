@@ -1,0 +1,12 @@
+name = "friday-relay"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# Har daqiqada vaqti kelgan eslatmalarni yuboradi
+[triggers]
+crons = ["* * * * *"]
+
+# `npx wrangler kv namespace create FRIDAY` chiqargan id
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_ID"

@@ -1,65 +1,64 @@
-"""Telegram rejalashtirilgan xabarlar — kompyuter o'chiq bo'lsa ham eslatmalar yetib boradi.
+"""PC o'chiq bo'lsa ham eslatmalar FRIDAY BOTI nomidan keladi — Cloudflare relay orqali.
 
 Bot faqat kompyuter yoniq paytda ishlaydi (ish kunlari ~09-18). Kechki/tungi va dam olish
 kunidagi eslatmalar yo'qolardi (Liverpool o'yini, Chempionlar ligasi 00:00, shom/xufton).
-Yechim: kelgusi xabarlarni egasining akkaunti (userbot) orqali «Saqlangan xabarlar»ga
-REJALASHTIRIB qo'yamiz — vaqti kelganda Telegram serveri o'zi yuboradi.
+Telegram botlarga xabar rejalashtirishga ruxsat bermaydi; «Saqlangan xabarlar»ga
+rejalashtirish egasiga yoqmadi ("menga shu bot yuborsin"). Shuning uchun:
 
-- sync(): har 2 daqiqada «kerakli» ro'yxat (eslatmalar, takroriylar, namoz, yillik sanalar,
-  Man City) bilan rejalashtirilganlarni tenglashtiradi: yangisini qo'shadi, bekor qilingan
-  yoki o'zgarganini o'chiradi. FAQAT o'zi yaratgan xabarlarga tegadi.
-- handoff(): bot yoniq bo'lsa, vaqtiga HANDOFF_SEC qolganda rejalashtirilganini o'chiradi —
-  xabarni bot o'zi FRIDAY chatiga yuboradi (takror bo'lmaydi).
-- claim(key): bot xabar yuborishdan oldin so'raydi. True = Telegram allaqachon yetkazgan
-  (PC o'chiq edi) — bot qayta yubormaydi. Kelajakdagisi bo'lsa o'chirishga navbatga qo'yadi.
-
-Holat settings'da (tg_sched): {kalit: {"id": xabar_id, "due": ts, "h": matn_hash}}.
+- sync(): bot yoniq paytda har daqiqada kelgusi xabarlar ro'yxatini (eslatmalar,
+  takroriylar, namoz, yillik sanalar, Man City) relay'ga yuboradi — faqat o'zgarganda.
+  Vaqtiga HANDOFF_SEC dan kam qolganlari ro'yxatga KIRMAYDI: ularni bot o'zi yuboradi.
+- relay (relay/src/index.js, Cloudflare Worker, cron har daqiqa) vaqti kelganini Bot API
+  orqali yuboradi — ya'ni kompyuter o'chib qolsa, ro'yxatdagilar baribir keladi.
+- claim(key): bot xabar yuborishdan oldin so'raydi. True = relay allaqachon yuborgan
+  (PC o'chiq edi) — bot qayta yubormaydi. Kesh refresh_sent() bilan yangilanadi.
 """
 import datetime
 import hashlib
 import json
 import logging
-import threading
 import time
+import urllib.request
 
 import config
 import memory
+import net
 
 log = logging.getLogger("jarvis")
 
-LEAD_SEC = 5 * 60          # bundan yaqinroq vaqtdagini rejalashtirmaymiz (bot o'zi yuboradi)
-HANDOFF_SEC = 3 * 60       # bot yoniq: shuncha qolganda rejalashtirilgani o'chiriladi
-MAX_ITEMS = 90             # Telegram: bir chatda 100 tagacha rejalashtirilgan xabar
+HANDOFF_SEC = 3 * 60       # bundan yaqinini bot o'zi yuboradi (sync har daqiqada)
+MAX_ITEMS = 250
 PRAYER_DAYS = 3
 RECURRING_DAYS = 3
 DATE_DAYS = 60
 FOOTBALL_DAYS = 7
-STATE_KEY = "tg_sched"
+REPUSH_SEC = 30 * 60       # o'zgarmasa ham shuncha vaqtda bir marta (relay holati tiklansin)
+SENT_TTL = 60
 DATE_HOUR = memory.DATE_HOUR
 
-_lock = threading.Lock()
-_pending_delete = []        # claim() navbati — handoff/sync o'chiradi
 _prayer_cache = {}          # (shahar, sana) -> timings
+_sent_cache = {"ts": 0.0, "keys": set()}
+
+
+def configured():
+    return bool(config.RELAY_URL and config.RELAY_KEY)
 
 
 def enabled(chat_id):
-    return (memory.get_setting(chat_id, "tg_sched_on", "1") == "1"
-            and bool(config.TG_API_ID and config.TG_API_HASH))
+    return (configured() and str(chat_id) == str(config.OWNER_ID)
+            and memory.get_setting(chat_id, "tg_sched_on", "1") == "1")
 
 
-def _hash(text):
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
-
-
-def _load(chat_id):
-    try:
-        return json.loads(memory.get_setting(chat_id, STATE_KEY, "{}") or "{}")
-    except ValueError:
-        return {}
-
-
-def _save(chat_id, state):
-    memory.set_setting(chat_id, STATE_KEY, json.dumps(state))
+def _request(method, path, body=None, timeout=15):
+    net.prefer_ipv4()
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(
+        config.RELAY_URL + path, data=data, method=method,
+        headers={"x-friday-key": config.RELAY_KEY, "content-type": "application/json",
+                 "user-agent": "FRIDAY"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
 
 
 def _ts(d, hour, minute=0):
@@ -68,7 +67,7 @@ def _ts(d, hour, minute=0):
 
 # --- Kerakli xabarlar ---
 
-def _prayers(chat_id, today, now):
+def _prayers(chat_id, today):
     import tools
     if memory.get_setting(chat_id, "auto_prayer", "0") != "1":
         return []
@@ -81,7 +80,7 @@ def _prayers(chat_id, today, now):
             try:
                 _prayer_cache[key] = tools._prayer_times(city, d)
             except Exception as e:
-                log.warning("Rejalashtirish: namoz vaqtlari olinmadi (%s): %s", d, str(e)[:80])
+                log.warning("Relay: namoz vaqtlari olinmadi (%s): %s", d, str(e)[:80])
                 continue
         timings = _prayer_cache[key]
         for eng, uz in tools.PRAYERS:
@@ -97,7 +96,7 @@ def _football(chat_id, now_dt):
     try:
         ms = football.fixtures()
     except Exception as e:
-        log.warning("Rejalashtirish: o'yinlar olinmadi: %s", str(e)[:80])
+        log.warning("Relay: o'yinlar olinmadi: %s", str(e)[:80])
         return []
     out = []
     for m in ms:
@@ -112,7 +111,7 @@ def _football(chat_id, now_dt):
 
 
 def desired(chat_id, now=None):
-    """[(kalit, vaqt_ts, matn)] — vaqti bo'yicha, eng yaqin MAX_ITEMS tasi."""
+    """[(kalit, vaqt_ts, matn)] — HANDOFF dan keyingilari, vaqti bo'yicha."""
     import tools
     now = now or time.time()
     now_dt = datetime.datetime.fromtimestamp(now)
@@ -127,7 +126,7 @@ def desired(chat_id, now=None):
             d = today + datetime.timedelta(days=i)
             if dow is None or dow == d.weekday():
                 items.append((f"rec:{rid}:{d.isoformat()}", _ts(d, h, m), f"🔔 Eslatma: {text}"))
-    items += _prayers(chat_id, today, now)
+    items += _prayers(chat_id, today)
     for did, text, _m, _d, year, occ in memory.list_dates(chat_id, today):
         if (occ - today).days > DATE_DAYS:
             continue
@@ -137,98 +136,54 @@ def desired(chat_id, now=None):
         items.append((f"date:{did}:{occ.isoformat()}:day", _ts(occ, DATE_HOUR),
                       tools.date_alert_text(text, year, occ, True)))
     items += _football(chat_id, now_dt.astimezone())
-    items = sorted((it for it in items if it[1] > now + LEAD_SEC), key=lambda it: it[1])
+    items = sorted((it for it in items if it[1] > now + HANDOFF_SEC), key=lambda it: it[1])
     return items[:MAX_ITEMS]
 
 
-# --- Tenglashtirish ---
-
-def _flush_deletes():
-    import userbot
-    if not _pending_delete:
-        return
-    ids = list(_pending_delete)
-    try:
-        userbot.delete_scheduled(ids)
-        del _pending_delete[:len(ids)]
-    except Exception as e:
-        log.warning("Rejalashtirilgan xabarlar o'chirilmadi: %s", str(e)[:100])
-
-
 def sync(chat_id, now=None):
-    """(qo'shildi, o'chirildi) soni."""
-    import userbot
+    """Ro'yxatni relay'ga yuboradi (o'zgargan bo'lsa). Yuborilgan xabarlar soni yoki None."""
+    import fmt
     if not enabled(chat_id):
-        return 0, 0
+        return None
     now = now or time.time()
-    want = {k: (due, text) for k, due, text in desired(chat_id, now)}
-    with _lock:
-        state = _load(chat_id)
-        removed = 0
-        for key, ent in list(state.items()):
-            if ent["due"] < now - 2 * 86400:
-                del state[key]  # yetkazilgan, endi kerak emas
-                continue
-            if ent["due"] <= now:
-                continue  # Telegram yetkazdi — bot claim() qilguncha saqlanadi
-            w = want.get(key)
-            if w is None or abs(w[0] - ent["due"]) > 30 or _hash(w[1]) != ent["h"]:
-                _pending_delete.append(ent["id"])  # bekor qilindi yoki o'zgardi
-                del state[key]
-                removed += 1
-        _flush_deletes()
-        added = 0
-        future = sum(1 for e in state.values() if e["due"] > now)
-        for key, (due, text) in want.items():
-            if key in state or future >= MAX_ITEMS:
-                continue
-            try:
-                mid = userbot.schedule_saved(text, due)
-            except Exception as e:
-                log.warning("Rejalashtirib bo'lmadi (%s): %s", key, str(e)[:100])
-                break  # tarmoq yo'q — keyingi sync'da
-            if mid:
-                state[key] = {"id": mid, "due": due, "h": _hash(text)}
-                added += 1
-                future += 1
-        _save(chat_id, state)
-    if added or removed:
-        log.info("Telegram rejalashtirish: +%d, -%d (jami %d)", added, removed, future)
-    return added, removed
+    items = [{"key": k, "due": round(due), "text": fmt.to_html(text)} for k, due, text in desired(chat_id, now)]
+    digest = hashlib.sha1(json.dumps(items, sort_keys=True).encode("utf-8")).hexdigest()
+    last_ts = float(memory.get_setting(chat_id, "relay_push_ts", "0") or 0)
+    if digest == memory.get_setting(chat_id, "relay_hash", "") and now - last_ts < REPUSH_SEC:
+        return None
+    res = _request("PUT", "/alerts", {"items": items})
+    memory.set_setting(chat_id, "relay_hash", digest)
+    memory.set_setting(chat_id, "relay_push_ts", str(now))
+    memory.set_setting(chat_id, "relay_count", str(res.get("items", len(items))))
+    return res.get("items", len(items))
 
 
-def handoff(chat_id, now=None):
-    """Bot yoniq: vaqtiga oz qolganlarni Telegram'dan olib, botga qoldiradi."""
+def clear(chat_id):
+    """Relay navbatini bo'shatadi (o'chirilganda)."""
+    if configured():
+        _request("PUT", "/alerts", {"items": []})
+    memory.set_setting(chat_id, "relay_hash", "")
+    memory.set_setting(chat_id, "relay_count", "0")
+
+
+def refresh_sent(force=False):
+    """Relay yuborgan kalitlar keshini yangilaydi (bot oqimidan tashqarida chaqiriladi)."""
+    if not configured() or (not force and time.time() - _sent_cache["ts"] < SENT_TTL):
+        return
+    try:
+        _sent_cache["keys"] = set(_request("GET", "/sent", timeout=10).get("sent", {}))
+        _sent_cache["ts"] = time.time()
+    except Exception as e:
+        log.warning("Relay /sent o'qilmadi: %s", str(e)[:100])
+
+
+def claim(chat_id, key):
+    """Bot o'zi yuborishdan oldin. True — relay allaqachon yuborgan, bot yubormasin."""
+    return enabled(chat_id) and key in _sent_cache["keys"]
+
+
+def status_line(chat_id):
     if not enabled(chat_id):
-        return 0
-    now = now or time.time()
-    with _lock:
-        state = _load(chat_id)
-        near = [k for k, e in state.items() if now < e["due"] <= now + HANDOFF_SEC]
-        for k in near:
-            _pending_delete.append(state.pop(k)["id"])
-        if near:
-            _save(chat_id, state)
-        _flush_deletes()
-    return len(near)
-
-
-def claim(chat_id, key, now=None):
-    """Bot o'zi yuborishdan oldin. True — Telegram allaqachon yetkazgan, bot yubormasin."""
-    now = now or time.time()
-    with _lock:
-        state = _load(chat_id)
-        ent = state.pop(key, None)
-        if ent is None:
-            return False
-        _save(chat_id, state)
-        if ent["due"] <= now:
-            return True
-        _pending_delete.append(ent["id"])  # hali kelmagan — bot yuboradi, rejalashtirilgani o'chadi
-        return False
-
-
-def status_line(chat_id, now=None):
-    now = now or time.time()
-    n = sum(1 for e in _load(chat_id).values() if e["due"] > now)
-    return f"📅 Telegram'da rejalashtirilgan: {n} ta (PC o'chiq bo'lsa ham keladi)" if enabled(chat_id) else ""
+        return ""
+    n = memory.get_setting(chat_id, "relay_count", "0")
+    return f"📡 Relay navbatida: {n} ta xabar (PC o'chiq bo'lsa ham bot yuboradi)"

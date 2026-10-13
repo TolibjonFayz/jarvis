@@ -666,7 +666,7 @@ async def cmd_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def tgsched_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har 2 daqiqada: kelgusi eslatmalarni Telegram'da rejalashtiradi (PC o'chiq bo'lsa ham keladi)."""
+    """Har daqiqada: kelgusi eslatmalar ro'yxatini relay'ga yuboradi (PC o'chiq bo'lsa ham bot yuboradi)."""
     import tgsched
     owner = config.OWNER_ID
     if not owner or not tgsched.enabled(owner):
@@ -674,7 +674,7 @@ async def tgsched_job(context: ContextTypes.DEFAULT_TYPE):
     try:
         await asyncio.to_thread(tgsched.sync, owner)
     except Exception as e:
-        log.warning("Telegram rejalashtirish xatosi: %s", str(e)[:150])
+        log.warning("Relay sync xatosi: %s", str(e)[:150])
 
 
 async def football_job(context: ContextTypes.DEFAULT_TYPE):
@@ -1497,15 +1497,10 @@ async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
 
 async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
     """Har 30 soniyada vaqti kelgan (bir martalik + takroriy) eslatmalarni yuboradi.
-    Telegram'da rejalashtirilgan nusxasi bo'lsa: vaqtiga oz qolganda o'chiriladi (handoff),
-    PC o'chiq paytda Telegram yetkazgan bo'lsa — bot qayta yubormaydi (claim)."""
+    PC o'chiq paytda relay (Cloudflare) allaqachon yuborgan bo'lsa — bot qayta yubormaydi (claim)."""
     import tgsched
     from datetime import date as _date
-    if config.OWNER_ID:
-        try:
-            await asyncio.to_thread(tgsched.handoff, config.OWNER_ID)
-        except Exception as e:
-            log.warning("Rejalashtirish handoff xatosi: %s", str(e)[:100])
+    await asyncio.to_thread(tgsched.refresh_sent)
     today = _date.today().isoformat()
 
     # Takroriy eslatmalar (har kuni/hafta)
@@ -1721,7 +1716,7 @@ def main():
         import nowplaying
         app.job_queue.run_repeating(loop_job, interval=nowplaying.TICK_SEC, first=5)
         app.job_queue.run_repeating(football_job, interval=600, first=45)
-        app.job_queue.run_repeating(tgsched_job, interval=120, first=60)
+        app.job_queue.run_repeating(tgsched_job, interval=60, first=30)
         # Kundalik: avto-namoz va tonggi brifing — aniq soatda emas, kompyuter
         # yoqilgandan keyin (kuniga bir marta): run_daily o'chiq kompyuterda o'tib ketardi.
         app.job_queue.run_repeating(daily_prayers_job, interval=600, first=20)

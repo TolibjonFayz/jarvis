@@ -116,7 +116,9 @@ def test_night_cl_game_announced_previous_morning(espn):
 
 
 def test_old_result_not_sent(espn):
-    out = fb.match_alerts(CHAT, dt.datetime(2026, 10, 12, 9, 0, tzinfo=TZ))  # 38 soat o'tgan
+    # Dam olish kunlari PC o'chiq: 38 soatlik natija hali yuboriladi, 80 soatlik — yo'q
+    assert any("Sunderland" in m for m in fb.match_alerts(CHAT, dt.datetime(2026, 10, 12, 9, 0, tzinfo=TZ)))
+    out = fb.match_alerts("boshqa", dt.datetime(2026, 10, 14, 3, 0, tzinfo=TZ))  # 80 soat o'tgan
     assert not any("Sunderland" in m for m in out)
 
 

@@ -383,7 +383,7 @@ def cancel_recurring(chat_id, number):
     return text
 
 
-def due_recurring(now_dt=None):
+def due_recurring(now_dt=None, with_id=False):
     """Vaqti kelgan takroriy eslatmalarni qaytaradi va 'bugun yuborildi' deb belgilaydi."""
     now = now_dt or datetime.datetime.now()
     today = now.strftime("%Y-%m-%d")
@@ -401,7 +401,7 @@ def due_recurring(now_dt=None):
                 hour=r["hour"], minute=r["minute"], second=0, microsecond=0
             )
             if now >= sched:
-                fired.append((r["chat_id"], r["text"]))
+                fired.append((r["chat_id"], r["text"], r["id"]) if with_id else (r["chat_id"], r["text"]))
                 c.execute(
                     "UPDATE recurring SET last_fired=? WHERE id=?", (today, r["id"])
                 )
@@ -457,7 +457,7 @@ def delete_date(chat_id, number):
     return rows[number - 1][1]
 
 
-def due_dates(now_dt=None):
+def due_dates(now_dt=None, with_id=False):
     """[(chat_id, text, year, occ, is_today)] — ertaga yoki bugun bo'lganlar, kuniga bir marta."""
     now = now_dt or datetime.datetime.now()
     if now.hour < DATE_HOUR:
@@ -475,7 +475,8 @@ def due_dates(now_dt=None):
             occ = next_occurrence(r["month"], r["day"], today)
             if (occ - today).days > 1:
                 continue
-            fired.append((r["chat_id"], r["text"], r["year"], occ, occ == today))
+            item = (r["chat_id"], r["text"], r["year"], occ, occ == today)
+            fired.append(item + (r["id"],) if with_id else item)
             c.execute("UPDATE dates SET last_fired=? WHERE id=?", (key, r["id"]))
     return fired
 

@@ -184,6 +184,34 @@ def download_media(chat_id, message_id, dest):
         return None
 
 
+# --- Rejalashtirilgan xabarlar («Saqlangan xabarlar») — PC o'chiq bo'lsa ham Telegram yetkazadi ---
+
+def schedule_saved(text, when_ts):
+    """Matnni `when_ts` vaqtiga «Saqlangan xabarlar»ga rejalashtiradi. Rejalashtirilgan xabar id'si."""
+    if not _ensure_started():
+        return None
+    import datetime as _dt
+
+    async def go():
+        when = _dt.datetime.fromtimestamp(when_ts, tz=_dt.timezone.utc)
+        msg = await _client.send_message("me", text, schedule=when, link_preview=False)
+        return msg.id
+    return _run(go(), timeout=60)
+
+
+def delete_scheduled(ids):
+    """FAQAT FRIDAY rejalashtirgan id'lar beriladi (egasining o'z rejalashtirganlariga tegilmaydi)."""
+    if not ids or not _ensure_started():
+        return False
+    from telethon.tl.functions.messages import DeleteScheduledMessagesRequest
+
+    async def go():
+        peer = await _client.get_input_entity("me")
+        await _client(DeleteScheduledMessagesRequest(peer=peer, id=list(ids)))
+        return True
+    return _run(go(), timeout=60)
+
+
 # --- Katta fayllar (bot API: yuborish 50MB, yuklash 20MB; akkaunt orqali — 2GB) ---
 
 def _big_timeout(size):

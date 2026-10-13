@@ -127,7 +127,7 @@ TOOL_CATEGORIES = {
         "set_reminder", "list_reminders", "set_prayer_reminders",
         "set_daily_prayers", "set_morning_brief",
         "set_recurring_reminder", "list_recurring", "cancel_recurring", "cancel_reminder",
-        "add_date", "list_dates", "delete_date",
+        "add_date", "list_dates", "delete_date", "set_telegram_schedule",
     ],
     "todo": ["add_todo", "list_todos", "complete_todo"],
     "pul": [

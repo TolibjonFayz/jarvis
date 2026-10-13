@@ -147,6 +147,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Ochiq vazifa: {c['todos']}",
         f"💸 Bugun sarflandi: {jtools._som(c['spent_today'])}",
         f"👤 Userbot: {'ulangan' if config.TG_API_ID else 'sozlanmagan'}",
+        __import__("tgsched").status_line(chat_id),
     ]
     await _send_md(context.bot, chat_id, "\n".join(lines))
 
@@ -664,6 +665,18 @@ async def cmd_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, update.effective_chat.id, await asyncio.to_thread(build))
 
 
+async def tgsched_job(context: ContextTypes.DEFAULT_TYPE):
+    """Har 2 daqiqada: kelgusi eslatmalarni Telegram'da rejalashtiradi (PC o'chiq bo'lsa ham keladi)."""
+    import tgsched
+    owner = config.OWNER_ID
+    if not owner or not tgsched.enabled(owner):
+        return
+    try:
+        await asyncio.to_thread(tgsched.sync, owner)
+    except Exception as e:
+        log.warning("Telegram rejalashtirish xatosi: %s", str(e)[:150])
+
+
 async def football_job(context: ContextTypes.DEFAULT_TYPE):
     """Man City: o'yin kuni / 1 soat oldin / natija (10 daqiqada) + jiddiy yangiliklar (2 soatda)."""
     import football
@@ -671,7 +684,9 @@ async def football_job(context: ContextTypes.DEFAULT_TYPE):
     if not owner or memory.get_setting(owner, "football", "0") != "1":
         return
     try:
-        msgs = await asyncio.to_thread(football.match_alerts, owner)
+        import tgsched
+        msgs = await asyncio.to_thread(football.match_alerts, owner, None,
+                                       lambda key: tgsched.claim(owner, key))
         if football.news_due(owner):
             football.mark_news_checked(owner)
             try:
@@ -1481,16 +1496,31 @@ async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
-    """Har 30 soniyada vaqti kelgan (bir martalik + takroriy) eslatmalarni yuboradi."""
+    """Har 30 soniyada vaqti kelgan (bir martalik + takroriy) eslatmalarni yuboradi.
+    Telegram'da rejalashtirilgan nusxasi bo'lsa: vaqtiga oz qolganda o'chiriladi (handoff),
+    PC o'chiq paytda Telegram yetkazgan bo'lsa — bot qayta yubormaydi (claim)."""
+    import tgsched
+    from datetime import date as _date
+    if config.OWNER_ID:
+        try:
+            await asyncio.to_thread(tgsched.handoff, config.OWNER_ID)
+        except Exception as e:
+            log.warning("Rejalashtirish handoff xatosi: %s", str(e)[:100])
+    today = _date.today().isoformat()
+
     # Takroriy eslatmalar (har kuni/hafta)
-    for chat_id, text in memory.due_recurring():
+    for chat_id, text, rid in memory.due_recurring(with_id=True):
+        if tgsched.claim(chat_id, f"rec:{rid}:{today}"):
+            continue
         try:
             await context.bot.send_message(chat_id=chat_id, text=f"🔔 Eslatma: {text}")
         except Exception:
             log.warning("Takroriy eslatma yuborilmadi (chat_id=%s)", chat_id)
 
     # Yillik sanalar: ertaga/bugun (soat 9 dan keyin, PC yoqilganda ham yetib keladi)
-    for chat_id, text, year, occ, is_today in memory.due_dates():
+    for chat_id, text, year, occ, is_today, did in memory.due_dates(with_id=True):
+        if tgsched.claim(chat_id, f"date:{did}:{occ.isoformat()}:{'day' if is_today else 'eve'}"):
+            continue
         try:
             await _send_md(context.bot, chat_id, jtools.date_alert_text(text, year, occ, is_today))
         except Exception:
@@ -1503,6 +1533,12 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
         # Avval "yuborildi" deb belgilaymiz — yuborish xato bo'lsa ham
         # cheksiz qayta urinmaslik uchun (best-effort).
         memory.mark_reminder_sent(rid)
+        if "namozi vaqti" in text:
+            key = f"pray:{_date.fromtimestamp(due_ts).isoformat()}:{text.split()[0]}"
+        else:
+            key = f"rem:{rid}"
+        if tgsched.claim(chat_id, key):
+            continue  # PC o'chiq paytda Telegram o'zi yetkazgan
         late = now - due_ts
         if "namozi vaqti" in text and late > 3600:
             continue  # namoz vaqti o'tib ketgan — eslatishning ma'nosi yo'q
@@ -1575,9 +1611,25 @@ WORD_COMMANDS = {
 }
 
 
+def _wait_for_network(max_wait=180):
+    """Kompyuter uyg'onganda Wi-Fi hali ulanmagan bo'ladi — bot get_me'da yiqilib, logni
+    traceback bilan to'ldirardi (supervisor 10 s da qayta yoqardi). Avval tarmoqni kutamiz."""
+    import socket
+    start = time.time()
+    while time.time() - start < max_wait:
+        try:
+            socket.create_connection(("api.telegram.org", 443), timeout=5).close()
+            return True
+        except OSError:
+            time.sleep(5)
+    return False
+
+
 def main():
     config.check()
     memory.init_db()
+    if not _wait_for_network():
+        log.warning("Tarmoq 3 daqiqada ulanmadi — baribir urinib ko'raman")
 
     # Standart 5 s chegara fayl yuborishga yetmasdi (4 MB rasm "Timed out").
     app = (
@@ -1669,6 +1721,7 @@ def main():
         import nowplaying
         app.job_queue.run_repeating(loop_job, interval=nowplaying.TICK_SEC, first=5)
         app.job_queue.run_repeating(football_job, interval=600, first=45)
+        app.job_queue.run_repeating(tgsched_job, interval=120, first=60)
         # Kundalik: avto-namoz va tonggi brifing — aniq soatda emas, kompyuter
         # yoqilgandan keyin (kuniga bir marta): run_daily o'chiq kompyuterda o'tib ketardi.
         app.job_queue.run_repeating(daily_prayers_job, interval=600, first=20)

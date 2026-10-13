@@ -261,6 +261,18 @@ TOOLS = [
         },
     },
     {
+        "name": "set_telegram_schedule",
+        "description": (
+            "Eslatmalarni Telegram'da oldindan rejalashtirishni yoqish/o'chirish (kompyuter o'chiq "
+            "bo'lsa ham «Saqlangan xabarlar»ga keladi). Holatini so'rasa on=null."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"on": {"type": ["boolean", "null"]}},
+            "required": [],
+        },
+    },
+    {
         "name": "add_date",
         "description": (
             "YILLIK sana qo'shadi (tug'ilgan kun, yubiley, to'y kuni) — har yili bir kun oldin "
@@ -1773,6 +1785,26 @@ def execute_tool(name, tool_input, chat_id=None):
             memory.set_setting(chat_id, "football", "1" if on else "0")
             return FINAL + ("⚽ Man City xabarlari YOQILDI: o'yin kuni, 1 soat oldin, natija va "
                             "jiddiy yangiliklar." if on else "⚽ Man City xabarlari o'chirildi.")
+
+        if name == "set_telegram_schedule":
+            import tgsched
+            on = tool_input.get("on")
+            if on is not None:
+                memory.set_setting(chat_id, "tg_sched_on", "1" if on else "0")
+                if not on:
+                    # Rejalashtirilganlarni darrov olib tashlaymiz (sync o'chiq holatda ishlamaydi)
+                    state = tgsched._load(chat_id)
+                    tgsched._pending_delete.extend(e["id"] for e in state.values() if e["due"] > time.time())
+                    tgsched._save(chat_id, {})
+                    try:
+                        tgsched._flush_deletes()
+                    except Exception:
+                        pass
+            if not tgsched.enabled(chat_id):
+                return FINAL + "📅 Telegram rejalashtirish O'CHIQ — eslatmalar faqat kompyuter yoniq paytda keladi."
+            return FINAL + ("📅 Telegram rejalashtirish YOQIQ — eslatmalar, namoz, tug'ilgan kunlar va "
+                            "Man City o'yinlari kompyuter o'chiq bo'lsa ham «Saqlangan xabarlar»ga keladi.\n"
+                            + tgsched.status_line(chat_id))
 
         if name == "add_date":
             month, day = int(tool_input["month"]), int(tool_input["day"])

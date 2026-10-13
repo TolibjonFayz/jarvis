@@ -28,7 +28,7 @@ TZ = datetime.timezone(datetime.timedelta(hours=config.TZ_OFFSET))
 
 MORNING_HOUR = 8          # o'yin kuni shu soatdan keyin "bugun o'yin"
 PRE_MIN = 60              # boshlanishidan shuncha daqiqa oldin eslatma
-RESULT_WINDOW_H = 24      # shu vaqt ichida tugagan o'yin natijasi yuboriladi
+RESULT_WINDOW_H = 72      # shu vaqt ichida tugagan o'yin natijasi (dam olish kuni PC o'chiq bo'ladi)
 NEWS_EVERY_SEC = 2 * 3600
 NEWS_MAX = 3              # bir tekshiruvda ko'pi bilan
 
@@ -233,8 +233,29 @@ def _mark(chat_id, keys):
     memory.set_setting(chat_id, "football_sent", json.dumps(sent))
 
 
-def match_alerts(chat_id, now=None):
-    """[(matn)] — o'yin kuni, 1 soat oldin va natija. Yuborilganlar belgilanadi."""
+def pre_text(m, minutes):
+    where = f"\n🏟 {m['venue']}" if m["venue"] else ""
+    return f"⏰ **{round(minutes)} daqiqadan keyin:** {match_title(m)} · {m['league']}{where}"
+
+
+def day_text(m, ref_date):
+    ko = m["kickoff"]
+    where = f"\n🏟 {m['venue']}" if m["venue"] else ""
+    when = f"soat {ko:%H:%M}" if ko.date() == ref_date else f"bugun kechasi soat {ko:%H:%M} ({ko:%d.%m})"
+    return f"⚽ **Bugun o'yin:** {match_title(m)} — {when} · {m['league']}{where}"
+
+
+def day_alert_time(m):
+    """Ertalabki xabar vaqti: o'yin kuni 08:00 (tungi o'yinda — oldingi kun)."""
+    ko = m["kickoff"]
+    d = ko.date() - datetime.timedelta(days=1) if _night(ko) else ko.date()
+    return datetime.datetime.combine(d, datetime.time(MORNING_HOUR, 0), TZ)
+
+
+def match_alerts(chat_id, now=None, claim=None):
+    """[(matn)] — o'yin kuni, 1 soat oldin va natija. Yuborilganlar belgilanadi.
+    claim(key) -> True: xabarni Telegram allaqachon yetkazgan (rejalashtirilgan) — matn qo'shilmaydi."""
+    claim = claim or (lambda key: False)
     now = now or datetime.datetime.now(TZ)
     sent = set(_sent(chat_id))
     out, keys = [], []
@@ -251,14 +272,14 @@ def match_alerts(chat_id, now=None):
         left = (ko - now).total_seconds() / 60
         if left <= 0 or ko > tonight_end:
             continue
-        where = f"\n🏟 {m['venue']}" if m["venue"] else ""
         if left <= PRE_MIN + 15 and f"pre:{m['id']}" not in sent:
-            out.append(f"⏰ **{round(left)} daqiqadan keyin:** {match_title(m)} · {m['league']}{where}")
+            claim(f"fb:{m['id']}:day")
+            if not claim(f"fb:{m['id']}:pre"):
+                out.append(pre_text(m, left))
             keys += [f"pre:{m['id']}", f"day:{m['id']}"]
         elif now.hour >= MORNING_HOUR and f"day:{m['id']}" not in sent and f"pre:{m['id']}" not in sent:
-            when = (f"soat {ko:%H:%M}" if ko.date() == now.date()
-                    else f"bugun kechasi soat {ko:%H:%M} ({ko:%d.%m})")
-            out.append(f"⚽ **Bugun o'yin:** {match_title(m)} — {when} · {m['league']}{where}")
+            if not claim(f"fb:{m['id']}:day"):
+                out.append(day_text(m, now.date()))
             keys.append(f"day:{m['id']}")
     try:
         done = results()

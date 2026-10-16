@@ -43,6 +43,7 @@ async function sendTelegram(env, text) {
       body: JSON.stringify({ ...base, text: plain }),
     });
   }
+  if (!r.ok) console.log("telegram xato", r.status, (await r.text()).slice(0, 200));
   return r.ok;
 }
 
@@ -86,6 +87,10 @@ export default {
     if (req.method === "GET" && pathname === "/sent") {
       const state = await load(env);
       return json({ sent: prune(state.sent, now) });
+    }
+    if (req.method === "POST" && pathname === "/run") {
+      // Tekshirish uchun: cron kutmasdan hozir vaqti kelganlarni yuborish
+      return json({ ok: true, sent: await runDue(env, now) });
     }
     if (req.method === "GET" && pathname === "/health") {
       const state = await load(env);

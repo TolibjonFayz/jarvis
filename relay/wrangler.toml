@@ -9,4 +9,4 @@ crons = ["* * * * *"]
 # `npx wrangler kv namespace create FRIDAY` chiqargan id
 [[kv_namespaces]]
 binding = "KV"
-id = "REPLACE_WITH_KV_ID"
+id = "55f6910e5cc34018bbc9076d4f57b67a"

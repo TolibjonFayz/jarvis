@@ -737,6 +737,35 @@ async def _on_mind_button(update, data):
         pass
 
 
+async def radar_job(context: ContextTypes.DEFAULT_TYPE):
+    """ERP ish radari: prod buzilsa darhol (AI'siz), tiklanganda ham xabar."""
+    import radar
+    owner = config.OWNER_ID
+    if not owner:
+        return
+    try:
+        msgs = await asyncio.to_thread(radar.tick, owner)
+    except Exception as e:
+        log.warning("Radar xatosi: %s", str(e)[:150])
+        return
+    for text in msgs:
+        log.info("Radar: %s", text[:120])
+        await _send_md(context.bot, owner, text)
+
+
+async def cmd_radar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/radar — ERP prod holati hozir; /radar on|off."""
+    if not _authorized(update):
+        return
+    import radar
+    chat_id = update.effective_chat.id
+    arg = (context.args[0].lower() if context.args else "")
+    if arg in ("on", "off"):
+        memory.set_setting(chat_id, "radar_on", "1" if arg == "on" else "0")
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    await _send_md(context.bot, chat_id, await asyncio.to_thread(radar.status_text, chat_id))
+
+
 async def tgsched_job(context: ContextTypes.DEFAULT_TYPE):
     """Har daqiqada: kelgusi eslatmalar ro'yxatini relay'ga yuboradi (PC o'chiq bo'lsa ham bot yuboradi)."""
     import tgsched
@@ -1643,6 +1672,7 @@ BOT_COMMANDS = [
     ("sanalar", "Tug'ilgan kunlar va yillik sanalar"),
     ("city", "Man City: o'yinlar, jadval, natija"),
     ("miya", "Proaktiv miya: bugun nima o'yladi"),
+    ("radar", "ERP prod holati (API, Hikvision, amoCRM)"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1727,6 +1757,7 @@ def main():
     app.add_handler(CommandHandler("sanalar", cmd_dates))
     app.add_handler(CommandHandler("city", cmd_city))
     app.add_handler(CommandHandler("miya", cmd_mind))
+    app.add_handler(CommandHandler("radar", cmd_radar))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(
@@ -1799,6 +1830,7 @@ def main():
         app.job_queue.run_repeating(football_job, interval=600, first=45)
         app.job_queue.run_repeating(tgsched_job, interval=60, first=30)
         app.job_queue.run_repeating(proactive_job, interval=300, first=180)
+        app.job_queue.run_repeating(radar_job, interval=300, first=60)
         # Kundalik: avto-namoz va tonggi brifing — aniq soatda emas, kompyuter
         # yoqilgandan keyin (kuniga bir marta): run_daily o'chiq kompyuterda o'tib ketardi.
         app.job_queue.run_repeating(daily_prayers_job, interval=600, first=20)

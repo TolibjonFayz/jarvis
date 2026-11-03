@@ -87,6 +87,11 @@ READ_ROOT = os.getenv("READ_ROOT", r"D:\Tolibjon")
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 DB_PATH = os.path.join(DATA_DIR, "jarvis.db")
 
+# ERP ish radari: prod baza ulanishi backend'ning o'z .env faylidan o'qiladi (nusxa
+# olinmaydi), faqat read-only tranzaksiyada. Fayl yo'q bo'lsa radar o'chiq.
+ERP_ENV_PATH = os.getenv("ERP_ENV_PATH", r"D:\Tolibjon\Programming\Climavent\erp_climavent_backend\.env")
+ERP_API_URL = os.getenv("ERP_API_URL", "https://erpclimaventbackend-production.up.railway.app/api/")
+
 os.makedirs(WORKSPACE, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 

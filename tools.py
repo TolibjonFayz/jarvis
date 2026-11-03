@@ -109,7 +109,10 @@ TOOLS = [
     },
     {
         "name": "web_search",
-        "description": "Internetdan qidirish (dolzarb ma'lumot/yangilik)",
+        "description": "Internetdan qidirish (dolzarb ma'lumot/yangilik). Odamlar, jamoalar, "
+                       "transfer, jarohat, narx, versiya — doim shu bilan tekshir. "
+                       "Inglizcha query aniqroq natija beradi. Query'ga eski yil yozma "
+                       "(model o'zini 2024 da deb o'ylab 'injury news 2024' qidirgan).",
         "input_schema": {
             "type": "object",
             "properties": {"query": {"type": "string"}},
@@ -852,14 +855,23 @@ def _safe_read_path(path):
 def _web_search(query, n=4):
     from ddgs import DDGS
 
-    results = DDGS().text(query, max_results=n)
-    if not results:
-        return "Hech narsa topilmadi."
     blocks = []
-    for r in results:
-        body = (r.get("body", "") or "")[:180]
+    # Oxirgi oy yangiliklari sanasi bilan: oddiy qidiruv eski maqolalarni ham beradi
+    # va model ulardan "Messi PSG'da" degan eskirgan xulosa chiqarardi.
+    try:
+        for r in DDGS().news(query, max_results=3, timelimit="m") or []:
+            body = (r.get("body", "") or "")[:200]
+            blocks.append(f"[{(r.get('date') or '')[:10]}] {r.get('title', '')}\n{body}\n{r.get('url', '')}")
+    except Exception:
+        pass  # yangiliklar bo'lmasa oddiy qidiruv yetadi
+    for r in DDGS().text(query, max_results=n) or []:
+        body = (r.get("body", "") or "")[:250]
         blocks.append(f"{r.get('title', '')}\n{body}\n{r.get('href', '')}")
-    return "\n\n".join(blocks)
+    if not blocks:
+        return "Hech narsa topilmadi."
+    return (f"Bugun {datetime.date.today():%Y-%m-%d}. Javobni FAQAT shu natijalarga asosla, "
+            "eng yangi sanalisini ustun qo'y; ichki bilimingni ishlatma (u eskirgan). "
+            "Natijada yo'q narsani aytma.\n\n" + "\n\n".join(blocks))
 
 
 def _get_weather(city):

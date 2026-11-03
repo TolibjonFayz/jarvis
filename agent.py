@@ -210,6 +210,15 @@ _FORCED_ROUTES = [
     # Musiqa — faqat musiqa tool'lari: "youtube'ga kir va qo'shiq qo'y" da model link
     # ochish tool'ini tanlab, qo'shiq qo'ymay qolardi.
     (re.compile(r"qo.?shi[qg]|musiqa|music|pauza|keyingi qo", re.IGNORECASE), ["music"]),
+    # Dolzarb faktlar — router o'zining eski bilimidan javob berardi ("Messi PSG'da",
+    # Semenyo jarohatini to'qigan). Bunday savolda qidiruv majburiy.
+    (re.compile(r"qaysi\s*(klub|jamoa|kompaniya|davlat)|o.?ynayapti|o.?ynaydi\b|transfer|"
+                r"jarohat|murabbiy|trener|prezident|vazir|direktor|\bceo\b|chempion|ballon|"
+                r"oltin\s*to.?p|reyting|turnir\s*jadval|\bliga|premer|real\s*madrid|barsa|"
+                r"barselona|barcelona|\bpsg\b|messi|ronaldu|yangilik|so.?nggi\s*(xabar|holat)|"
+                r"hozir(gi)?\s*(holat|kim|qayer|narx)|rostdan.{0,60}\?|haqiqatan.{0,60}\?|"
+                r"narxi\s*qancha|qancha\s*turadi|qachon\s*chiq|chiqdimi|yangi\s*versiya",
+                re.IGNORECASE), ["web"]),
     # Oxirida: "kompyuterda nima qildim" yuqorida loyihaga ketadi.
     (re.compile(r"ekran|skrinshot|screenshot|kompyuter|noutbuk|\bpc\b|qulfla|uxlat|"
                 r"youtube|ovozni", re.IGNORECASE), ["pc"]),
@@ -423,6 +432,9 @@ def build_system(chat_id, user_text, router=False):
         f"Hozir: {now}. "
         "Format: `kod`, ```blok```, '- ' ro'yxat, **qalin** kam; jadval yo'q. "
         "Bilmaganingni to'qima; tool'siz 'bajardim' dema; tool nomlarini egangga aytma. "
+        # Model bilimi ~2024 da to'xtagan: "Messi PSG'da", eski tarkib/jarohatlarni aytardi.
+        "Ichki bilimlaring ESKI (2024 gacha): kim qayerda o'ynashi/ishlashi, lavozim, "
+        "tarkib, jarohat, natija, narx, versiya haqida faqat qidiruv natijasiga tayan. "
         "Faktlarni fonda o'zing eslab "
         "qolasan — 'eslab qol deng' deb so'rama. "
         f"Egang haqida: {mem_text}. "
@@ -448,7 +460,8 @@ def build_system(chat_id, user_text, router=False):
             "pauza/ovoz); "
             "loyiha=git loyihalar (ERP, Climavent, bilim manba...); "
             "xot=faqat 'eslab qol/unut/men haqimda nima bilasan'. "
-            "Dolzarb raqamni (kurs, ob-havo, narx, yangilik) o'zingdan aytma — <TOOL:web>. "
+            "Dolzarb narsani (kurs, ob-havo, narx, yangilik, sport, odamlar/kompaniyalarning "
+            "hozirgi holati) o'zingdan aytma — <TOOL:web>. "
             "Imkoniyatlaring faqat: suhbat/kod, fayl, xotira, internet, ob-havo, kurs, eslatma, "
             "namoz, brifing, todo, xarajat/budjet, kalendar, Telegram, dayjest, loyihalar, ovoz, "
             "rasm, video, hujjat, kompyuter boshqaruvi, guruh moderatsiyasi. "

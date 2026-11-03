@@ -27,6 +27,18 @@ def test_forced_routes(text, cats):
     assert agent.forced_categories(text) == cats
 
 
+@pytest.mark.parametrize("text", [
+    "Messi qaysi klubda o'ynaydi?",                     # eski bilimdan "PSG'da" degan edi
+    "Semenyo rostdan ham jarohat oldimi",                # jarohatni to'qigan edi
+    "Ballon d'Or 2026 kim yutdi",
+    "Real Madrid murabbiyi kim",
+    "iPhone 17 narxi qancha",
+    "AI bo'yicha so'nggi xabarlar",
+])
+def test_current_facts_force_search(text):
+    assert agent.forced_categories(text) == ["web"]
+
+
 @pytest.mark.parametrize("text", ["salom bro", "python'da list nima?", "havo o'zgardimi?", "rahmat"])
 def test_no_forced_route_for_chat(text):
     assert agent.forced_categories(text) is None

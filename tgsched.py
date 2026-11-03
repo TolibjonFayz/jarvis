@@ -151,7 +151,13 @@ def sync(chat_id, now=None):
     last_ts = float(memory.get_setting(chat_id, "relay_push_ts", "0") or 0)
     if digest == memory.get_setting(chat_id, "relay_hash", "") and now - last_ts < REPUSH_SEC:
         return None
-    res = _request("PUT", "/alerts", {"items": items})
+    try:
+        res = _request("PUT", "/alerts", {"items": items})
+    except Exception as e:
+        # 30 daqiqalik jimlikdan keyingi birinchi ulanish ba'zan qotadi; qayta urinish o'tadi
+        log.info("Relay PUT qayta urinilmoqda: %s", str(e)[:80])
+        time.sleep(2)
+        res = _request("PUT", "/alerts", {"items": items})
     memory.set_setting(chat_id, "relay_hash", digest)
     memory.set_setting(chat_id, "relay_push_ts", str(now))
     memory.set_setting(chat_id, "relay_count", str(res.get("items", len(items))))

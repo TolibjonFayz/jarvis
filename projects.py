@@ -204,6 +204,8 @@ def _period_bounds(period):
         return monday - datetime.timedelta(days=7), monday
     if period == "oy":
         return today.replace(day=1), None
+    if period == "7kun":  # proaktiv miya: hafta boshidan emas, oxirgi 7 kun
+        return today - datetime.timedelta(days=7), None
     return today, None
 
 

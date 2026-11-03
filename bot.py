@@ -665,6 +665,78 @@ async def cmd_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, update.effective_chat.id, await asyncio.to_thread(build))
 
 
+async def _send_proactive(bot, chat_id, alerts):
+    for a in alerts:
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("👍 Foydali", callback_data=f"pa:up:{a['id']}"),
+            InlineKeyboardButton("🔕 Bunaqasini aytma", callback_data=f"pa:mute:{a['id']}"),
+        ]])
+        try:
+            await bot.send_message(chat_id, fmt.to_html("🧠 " + a["text"]),
+                                   parse_mode=ParseMode.HTML, reply_markup=kb)
+        except BadRequest:
+            await bot.send_message(chat_id, "🧠 " + fmt.to_plain(a["text"]), reply_markup=kb)
+        # Egasi javob yozsa, model nima haqida gap ketayotganini bilsin
+        memory.add_message(chat_id, "assistant", a["text"])
+
+
+async def proactive_job(context: ContextTypes.DEFAULT_TYPE):
+    """Proaktiv miya: slot vaqtida hamma signalni bog'lab, faqat muhim bo'lsa gapiradi."""
+    import proactive
+    owner = config.OWNER_ID
+    if not owner or not proactive.due_slot(owner):
+        return
+    try:
+        alerts = await asyncio.to_thread(proactive.run, owner)
+        await _send_proactive(context.bot, owner, alerts)
+    except Exception as e:
+        log.warning("Miya xatosi: %s", str(e)[:150])
+
+
+async def cmd_mind(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/miya — holat; /miya hozir | on | off | unmute."""
+    if not _authorized(update):
+        return
+    import proactive
+    chat_id = update.effective_chat.id
+    arg = (context.args[0].lower() if context.args else "")
+    if arg in ("on", "off"):
+        memory.set_setting(chat_id, "proactive_on", "1" if arg == "on" else "0")
+    elif arg == "unmute":
+        proactive.unmute(chat_id)
+    elif arg == "hozir":
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        alerts = await asyncio.to_thread(proactive.run, chat_id, None, True)
+        if alerts:
+            await _send_proactive(context.bot, chat_id, alerts)
+        else:
+            await update.message.reply_text("🧠 Hozircha aytishga arziydigan muhim narsa yo'q, bro.")
+        return
+    await _send_md(context.bot, chat_id, proactive.status_text(chat_id))
+
+
+async def _on_mind_button(update, data):
+    import proactive
+    q = update.callback_query
+    _, action, alert_id = data.split(":", 2)
+    row = proactive.find(alert_id)
+    if not row:
+        await q.answer("Eskirgan")
+        return
+    proactive.feedback(alert_id, action)
+    if action == "mute":
+        proactive.mute(update.effective_chat.id, row["kind"])
+        note = f"🔕 «{row['kind']}» turidagi xabarlarni endi aytmayman (/miya unmute — qaytarish)"
+    else:
+        proactive.like(update.effective_chat.id, row["kind"])
+        note = "👍 Qabul qilindi"
+    await q.answer(note[:190])
+    try:
+        await q.edit_message_reply_markup(None)
+    except BadRequest:
+        pass
+
+
 async def tgsched_job(context: ContextTypes.DEFAULT_TYPE):
     """Har daqiqada: kelgusi eslatmalar ro'yxatini relay'ga yuboradi (PC o'chiq bo'lsa ham bot yuboradi)."""
     import tgsched
@@ -854,6 +926,13 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.answer()
             return
         await _on_pc_button(update, context, data)
+        return
+
+    if data.startswith("pa:"):
+        if not _authorized(update):
+            await q.answer()
+            return
+        await _on_mind_button(update, data)
         return
 
     # --- Kirish CAPTCHA: tugmani yangi a'zoning O'ZI bosishi kerak ---
@@ -1563,6 +1642,7 @@ BOT_COMMANDS = [
     ("buyruqlar", "Build/test/git pull/dev serverlar"),
     ("sanalar", "Tug'ilgan kunlar va yillik sanalar"),
     ("city", "Man City: o'yinlar, jadval, natija"),
+    ("miya", "Proaktiv miya: bugun nima o'yladi"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1646,6 +1726,7 @@ def main():
     app.add_handler(CommandHandler("buyruqlar", cmd_commands))
     app.add_handler(CommandHandler("sanalar", cmd_dates))
     app.add_handler(CommandHandler("city", cmd_city))
+    app.add_handler(CommandHandler("miya", cmd_mind))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(
@@ -1717,6 +1798,7 @@ def main():
         app.job_queue.run_repeating(loop_job, interval=nowplaying.TICK_SEC, first=5)
         app.job_queue.run_repeating(football_job, interval=600, first=45)
         app.job_queue.run_repeating(tgsched_job, interval=60, first=30)
+        app.job_queue.run_repeating(proactive_job, interval=300, first=180)
         # Kundalik: avto-namoz va tonggi brifing — aniq soatda emas, kompyuter
         # yoqilgandan keyin (kuniga bir marta): run_daily o'chiq kompyuterda o'tib ketardi.
         app.job_queue.run_repeating(daily_prayers_job, interval=600, first=20)

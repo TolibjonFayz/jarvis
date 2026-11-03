@@ -766,6 +766,54 @@ async def cmd_radar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, chat_id, await asyncio.to_thread(radar.status_text, chat_id))
 
 
+def _pc_voice_reply(app, loop, text):
+    """Kompyuter ovozi (fon oqimida): agent javobi + Telegram'ga nusxa va tasdiq tugmalari."""
+    from types import SimpleNamespace
+    owner = config.OWNER_ID
+    try:
+        reply = agent.respond(owner, text)
+    except Exception as e:
+        log.warning("PC ovoz: javob xatosi: %s", str(e)[:150])
+        s = str(e).lower()
+        return ("Groq chegarasi urildi, bir daqiqadan keyin qayta so'rang."
+                if "429" in s or "rate_limit" in s else "Kechirasiz, xato yuz berdi.")
+    needs_ok = any(p["chat_id"] == owner and not p["shown"] for p in jtools.PENDING_SENDS.values())
+
+    async def mirror():
+        msg = await app.bot.send_message(owner, f"🎙 PC: «{text}»")
+        await _send_md(app.bot, owner, reply)
+        await _show_pending_sends(SimpleNamespace(effective_message=msg, effective_chat=msg.chat), owner)
+
+    try:
+        asyncio.run_coroutine_threadsafe(mirror(), loop).result(timeout=90)
+    except Exception as e:
+        log.warning("PC ovoz: Telegram nusxasi yuborilmadi: %s", str(e)[:120])
+    return reply + (" Tasdiqlash tugmasi Telegram'da." if needs_ok else "")
+
+
+async def _post_init(app):
+    await _set_commands(app)
+    import voice_pc
+    loop = asyncio.get_running_loop()
+    voice_pc.start(lambda text: _pc_voice_reply(app, loop, text), config.OWNER_ID)
+
+
+async def cmd_voice_pc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/ovoz — kompyuter ovozi holati; on|off, wake on|off, test."""
+    if not _authorized(update):
+        return
+    import voice_pc
+    chat_id = update.effective_chat.id
+    args = [a.lower() for a in context.args or []]
+    if args[:1] in (["on"], ["off"]):
+        memory.set_setting(chat_id, "pc_voice_on", "1" if args[0] == "on" else "0")
+    elif args[:1] == ["wake"] and args[1:2] in (["on"], ["off"]):
+        memory.set_setting(chat_id, "pc_wake_on", "1" if args[1] == "on" else "0")
+    elif args[:1] == ["test"]:
+        await asyncio.to_thread(voice_pc.say, "Salom bro, men FRIDAY. Karnay ishlayapti.")
+    await _send_md(context.bot, chat_id, voice_pc.status_text(chat_id))
+
+
 async def tgsched_job(context: ContextTypes.DEFAULT_TYPE):
     """Har daqiqada: kelgusi eslatmalar ro'yxatini relay'ga yuboradi (PC o'chiq bo'lsa ham bot yuboradi)."""
     import tgsched
@@ -1673,6 +1721,7 @@ BOT_COMMANDS = [
     ("city", "Man City: o'yinlar, jadval, natija"),
     ("miya", "Proaktiv miya: bugun nima o'yladi"),
     ("radar", "ERP prod holati (API, Hikvision, amoCRM)"),
+    ("ovoz", "Kompyuter ovozi: Hey Jarvis / Ctrl+Alt+J"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1738,7 +1787,7 @@ def main():
 
     # Standart 5 s chegara fayl yuborishga yetmasdi (4 MB rasm "Timed out").
     app = (
-        Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(_set_commands)
+        Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(_post_init)
         .connect_timeout(20).read_timeout(30).write_timeout(120).pool_timeout(20)
         .build()
     )
@@ -1758,6 +1807,7 @@ def main():
     app.add_handler(CommandHandler("city", cmd_city))
     app.add_handler(CommandHandler("miya", cmd_mind))
     app.add_handler(CommandHandler("radar", cmd_radar))
+    app.add_handler(CommandHandler("ovoz", cmd_voice_pc))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(

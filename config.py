@@ -52,6 +52,7 @@ VOICE_REPLY = os.getenv("VOICE_REPLY", "1") == "1"  # javobni ovoz bilan ham yub
 VOICE_NAME = os.getenv("VOICE_NAME", "uz-UZ-MadinaNeural")  # FRIDAY; yoki uz-UZ-SardorNeural
 VOICE_LANG = os.getenv("VOICE_LANG", "uz")  # Whisper tili ('' = avto-aniqlash)
 STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3")
+PC_VOICE = os.getenv("PC_VOICE", "1") == "1"  # kompyuterda "Hey Jarvis" / Ctrl+Alt+J
 
 # Rasm ko'rish (Gemini tekin). FAQAT rasm + izoh yuboriladi — vision.py ga qarang.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

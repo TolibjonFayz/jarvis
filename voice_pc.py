@@ -136,15 +136,30 @@ def _set_state(s):
     STATE = s
 
 
+_UZ_RE = __import__("re").compile(
+    r"o['‘’ʻ`]|g['‘’ʻ`]|\b(va|bilan|uchun|qil\w*|bo'l\w*|kerak|yo'q|bor|ochildi|qo'shildi|"
+    r"yozildi|o'chirildi|eslatma\w*|bugun|ertaga|soat|kun|vazifa\w*)\b", __import__("re").IGNORECASE)
+
+
+def looks_uzbek(text):
+    """Inglizcha ovoz o'zbekcha matnni buzib o'qiydi — tool natijalari (🚀 ochildi, ✅ qo'shildi)
+    modelsiz o'zbekcha qaytadi. 3+ belgi bo'lsa o'zbekcha deb hisoblaymiz."""
+    return len(_UZ_RE.findall(text or "")) >= 3
+
+
 def say(text):
-    speak = voice.speakable(text, limit=400)
+    """Kompyuter karnayidan (config.PC_VOICE_NAME, inglizcha)."""
+    lang = config.PC_LANG
+    if lang == "en" and looks_uzbek(text):
+        text = "Done. The details are on your screen."
+    speak = voice.speakable(text, limit=400, lang=lang)
     if not speak:
         return
     mp3 = os.path.join(tempfile.gettempdir(), f"friday_pc_{int(time.time() * 1000)}.mp3")
     with _say_lock:
         prev = STATE
         try:
-            asyncio.run(voice.tts(speak, mp3))
+            asyncio.run(voice.tts(speak, mp3, config.PC_VOICE_NAME))
             _set_state("speaking")
             play_mp3(mp3)
         finally:
@@ -311,10 +326,10 @@ class PcVoice:
         """True — suhbat davom etadi (javob berildi yoki faqat chaqiruv so'zi aytildi)."""
         path = _wav(audio)
         try:
-            raw = voice.transcribe(path)
+            raw = voice.transcribe(path, language=config.PC_LANG)
         except Exception as e:
             log.warning("PC ovoz: STT xatosi: %s", str(e)[:120])
-            say("Kechirasiz, ovozni tanib bo'lmadi.")
+            say("Sorry, I couldn't make that out.")
             return False
         finally:
             try:
@@ -327,7 +342,7 @@ class PcVoice:
             _beep(440, 90)
             return False
         if kind == "wake_only":
-            say("Ha bro, eshitaman.")
+            say("Yes, boss? I'm listening.")
             return True
         try:
             import hud

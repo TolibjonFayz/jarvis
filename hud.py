@@ -72,34 +72,42 @@ def push(kind, text, who="friday"):
         EVENTS.append({"id": _event_id[0], "ts": time.time(), "kind": kind,
                        "who": who, "text": (text or "")[:1500]})
     if kind in ("radar", "mind") and hud_open():
-        speak_async(("Diqqat. " if kind == "radar" else "") + text)
+        # Matn o'zbekcha (ekranda), ovoz inglizcha — umumiy ibora aytiladi
+        speak_async("Heads up, boss. The ERP radar picked something up. Details are on your screen."
+                    if kind == "radar" else
+                    "Boss, there's something you should know. I've put it on your screen.")
 
 
 def _part_of_day(h):
-    return ("Xayrli tong" if 5 <= h < 12 else "Xayrli kun" if h < 17
-            else "Xayrli kech" if h < 23 else "Kech bo'ldi")
+    return ("Good morning" if 5 <= h < 12 else "Good afternoon" if h < 17
+            else "Good evening" if h < 23 else "Working late, I see")
 
 
 def greeting(now=None):
-    """Oyna ochilganda aytiladigan qisqa holat (AI'siz, keshdan)."""
+    """Oyna ochilganda aytiladigan qisqa holat (AI'siz, keshdan) — inglizcha, Ryan ovozi uchun."""
     now = now or datetime.datetime.now()
-    parts = [f"{_part_of_day(now.hour)}, bro. Soat {now:%H:%M}."]
+    parts = [f"{_part_of_day(now.hour)}, boss. It's {now:%H:%M}."]
     w = _cache.get("weather")
     if w:
-        parts.append(f"Toshkentda {w['temp']} daraja.")
+        parts.append(f"{w['temp']} degrees in Tashkent.")
     today = now.date().isoformat()
     ag = [a for a in (_cache.get("agenda") or []) if a["day"] == today
           and (a["time"] == "kun bo'yi" or a["time"][:5] >= f"{now:%H:%M}")]
     if ag:
-        parts.append(f"Bugun yana {len(ag)} ta reja bor, birinchisi {ag[0]['time'][:5]} da: {ag[0]['title']}.")
+        n = len(ag)
+        parts.append(f"You have {n} more {'thing' if n == 1 else 'things'} today, "
+                     f"first at {ag[0]['time'][:5]}: {ag[0]['title']}.")
     else:
-        parts.append("Bugun boshqa reja yo'q.")
+        parts.append("Nothing else on the schedule today.")
     un = _cache.get("unanswered") or []
     if un:
-        parts.append(f"{un[0]['name']} javob kutyapti" + (f" va yana {len(un) - 1} kishi." if len(un) > 1 else "."))
+        parts.append(f"{un[0]['name']} is waiting for your reply"
+                     + (f", along with {len(un) - 1} others." if len(un) > 1 else "."))
     r = _cache.get("radar") or {}
     if r.get("configured"):
-        parts.append(f"ERP'da {len(r['problems'])} ta muammo." if r.get("problems") else "ERP joyida.")
+        n = len(r.get("problems") or [])
+        parts.append(f"The ERP radar shows {n} {'issue' if n == 1 else 'issues'}." if n
+                     else "All ERP systems are green.")
     return " ".join(parts)
 
 

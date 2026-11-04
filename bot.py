@@ -776,12 +776,13 @@ def _pc_voice_reply(app, loop, text, source="voice"):
     from types import SimpleNamespace
     owner = config.OWNER_ID
     try:
-        reply = agent.respond(owner, text)
+        with agent.replying_in(config.PC_LANG):  # kompyuterda inglizcha (Ryan ovozi)
+            reply = agent.respond(owner, text)
     except Exception as e:
         log.warning("PC %s: javob xatosi: %s", source, str(e)[:150])
         s = str(e).lower()
-        return ("Groq chegarasi urildi, bir daqiqadan keyin qayta so'rang."
-                if "429" in s or "rate_limit" in s else "Kechirasiz, xato yuz berdi.")
+        return ("I've hit the Groq rate limit, boss. Give me a minute and ask again."
+                if "429" in s or "rate_limit" in s else "Sorry boss, something went wrong on my end.")
     needs_ok = (any(p["chat_id"] == owner and not p["shown"] for p in jtools.PENDING_SENDS.values())
                 or any(f["chat_id"] == owner for f in jtools.PENDING_FILES))
     if source == "hud" and not needs_ok:
@@ -798,7 +799,7 @@ def _pc_voice_reply(app, loop, text, source="voice"):
         asyncio.run_coroutine_threadsafe(mirror(), loop).result(timeout=90)
     except Exception as e:
         log.warning("PC %s: Telegram nusxasi yuborilmadi: %s", source, str(e)[:120])
-    return reply + (" Tasdiqlash tugmasi Telegram'da." if needs_ok else "")
+    return reply + (" The confirmation button is waiting in Telegram." if needs_ok else "")
 
 
 async def _post_init(app):
@@ -822,7 +823,7 @@ async def cmd_voice_pc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif args[:1] == ["wake"] and args[1:2] in (["on"], ["off"]):
         memory.set_setting(chat_id, "pc_wake_on", "1" if args[1] == "on" else "0")
     elif args[:1] == ["test"]:
-        await asyncio.to_thread(voice_pc.say, "Salom bro, men FRIDAY. Karnay ishlayapti.")
+        await asyncio.to_thread(voice_pc.say, "Hello boss, FRIDAY here. The speakers are working fine.")
     await _send_md(context.bot, chat_id, voice_pc.status_text(chat_id))
 
 

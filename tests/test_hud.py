@@ -85,9 +85,9 @@ def test_greeting_from_cache(monkeypatch):
         radar={"configured": True, "on": True, "problems": []},
     )
     text = hud.greeting(datetime.datetime(2026, 11, 4, 10, 30))
-    assert text.startswith("Xayrli tong, bro. Soat 10:30.")
-    assert "18 daraja" in text and "21:00 da: Meeting" in text
-    assert "Sardor aka javob kutyapti" in text and "ERP joyida" in text
+    assert text.startswith("Good morning, boss. It's 10:30.")
+    assert "18 degrees in Tashkent" in text and "1 more thing today, first at 21:00: Meeting" in text
+    assert "Sardor aka is waiting for your reply." in text and "All ERP systems are green." in text
 
 
 def test_greet_once_per_20_min(monkeypatch, server):
@@ -115,4 +115,20 @@ def test_alerts_spoken_only_while_hud_open(monkeypatch):
     hud._last_poll[0] = __import__("time").time()
     hud.push("radar", "prod API javob bermayapti")
     hud.push("chat", "oddiy javob")                       # chat ovozsiz
-    assert said == ["Diqqat. prod API javob bermayapti"]
+    assert len(said) == 1 and said[0].startswith("Heads up, boss. The ERP radar")
+
+
+def test_english_mode_prompt_and_spoken_text():
+    import agent
+    import voice
+    import voice_pc
+    assert "reply in natural spoken ENGLISH" not in agent.build_system(777, "salom")
+    with agent.replying_in("en"):
+        sys_en = agent.build_system(777, "salom")
+    assert "reply in natural spoken ENGLISH" in sys_en and "Doim o'zbekcha" not in sys_en
+    assert agent.reply_lang() is None                                   # oqim tozalandi
+    # Tool natijalari modelsiz o'zbekcha keladi — inglizcha ovoz ularni o'qimaydi
+    assert voice_pc.looks_uzbek("🚀 Kompyuterda ochildi: Telegram. Bugun soat 9 da uchrashuv bor")
+    assert not voice_pc.looks_uzbek("You have a meeting tomorrow at nine, boss.")
+    assert voice.speakable("see ```x=1``` and https://a.b", lang="en") == \
+        "see I've put the code on your screen. and the link is on your screen"

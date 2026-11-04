@@ -9,7 +9,9 @@ import re
 import json
 import logging
 import datetime
+import threading
 import time
+from contextlib import contextmanager
 
 from groq import Groq, RateLimitError
 
@@ -454,6 +456,23 @@ _WEEKDAYS = ["dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba"
 # Modelga beriladigan oxirgi xabarlar soni; undan eskisi brain xulosasida.
 HISTORY_WINDOW = 6
 
+# Javob tili shu oqim uchun (kompyuter ovozi/HUD — "en"); Telegram — standart o'zbekcha.
+_style = threading.local()
+
+
+def reply_lang():
+    return getattr(_style, "lang", None)
+
+
+@contextmanager
+def replying_in(lang):
+    prev = reply_lang()
+    _style.lang = lang
+    try:
+        yield
+    finally:
+        _style.lang = prev
+
 
 def build_system(chat_id, user_text, router=False):
     """Qisqa system prompt. router=True bo'lsa kategoriya tanlash yo'rig'i qo'shiladi."""
@@ -464,8 +483,9 @@ def build_system(chat_id, user_text, router=False):
     now = f"{dt:%Y-%m-%d %H:%M}, {_WEEKDAYS[dt.weekday()]}"
     base = (
         "Sen FRIDAY — egangning shaxsiy AI yordamchisi (F.R.I.D.A.Y. uslubi: xotirjam, aniq, "
-        "ozgina hazil). Doim o'zbekcha, qisqa va foydali. "
-        f"Hozir: {now}. "
+        "ozgina hazil). "
+        + ("Doim o'zbekcha, qisqa va foydali. " if reply_lang() != "en" else "")
+        + f"Hozir: {now}. "
         "Format: `kod`, ```blok```, '- ' ro'yxat, **qalin** kam; jadval yo'q. "
         "Bilmaganingni to'qima; tool'siz 'bajardim' dema; tool nomlarini egangga aytma. "
         # Model bilimi ~2024 da to'xtagan: "Messi PSG'da", eski tarkib/jarohatlarni aytardi.
@@ -485,6 +505,14 @@ def build_system(chat_id, user_text, router=False):
         "Xabar qisqa, xato yozilgan yoki undov bo'lsa ('yooo', 'ok', 'dsvom') — eski mavzuni "
         "davom ettirma: qisqa javob ber yoki nima demoqchiligini so'ra. "
     )
+    if reply_lang() == "en":
+        # Kompyuter (ovoz + HUD): javob inglizcha britaniyalik ovozda o'qiladi
+        base += (
+            "\nIMPORTANT: reply in natural spoken ENGLISH, even if the question is in Uzbek — your "
+            "reply is read aloud by a British voice. Sound like a calm, witty AI butler: concise "
+            "(1-3 sentences unless asked for detail), call the owner 'boss' now and then, no "
+            "markdown, no emoji, no lists unless asked. Keep names and places as they are. "
+        )
     if router:
         # Token tejash: har xabarda yuboriladi — ixcham yozilgan (avval ~1050 token edi).
         base += (
@@ -720,9 +748,15 @@ def _tool_loop(chat_id, history, user_text, cats, require=False):
                     # raqamlar buziladi, shuning uchun so'zma-so'z. Lekin "o'chir/qo'sh"
                     # so'ralgan bo'lsa ro'yxat faqat ORALIQ qadam — to'xtamaymiz
                     # (aks holda ro'yxatni ko'rsatib, o'chirmay qolardi).
-                    if is_mut or not _MUTATE_INTENT_RE.search(user_text):
+                    if reply_lang() == "en" and not is_mut:
+                        # Kompyuter ovozi: o'zbekcha ro'yxatni inglizcha ovoz o'qiy olmaydi —
+                        # model uni qisqa inglizcha gapga aylantiradi (o'zgartirish natijasi
+                        # esa so'zma-so'z qoladi, ovoz "Done" deydi).
+                        pass
+                    elif is_mut or not _MUTATE_INTENT_RE.search(user_text):
                         return result
-                    pending_final = result
+                    else:
+                        pending_final = result
                 last_result = result
                 messages.append(
                     {"role": "tool", "tool_call_id": cid, "content": result}

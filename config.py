@@ -53,6 +53,10 @@ VOICE_NAME = os.getenv("VOICE_NAME", "uz-UZ-MadinaNeural")  # FRIDAY; yoki uz-UZ
 VOICE_LANG = os.getenv("VOICE_LANG", "uz")  # Whisper tili ('' = avto-aniqlash)
 STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3")
 PC_VOICE = os.getenv("PC_VOICE", "1") == "1"  # kompyuterda "Hey Jarvis" / Ctrl+Alt+J
+# Kompyuterdagi FRIDAY (ovoz + HUD) inglizcha: o'zbekcha neyron ovoz sifatsiz edi, egasi
+# "ingliz tilida yaxshi gaplashsa yetadi" dedi (2026-11-04) va Ryan'ni tanladi.
+PC_VOICE_NAME = os.getenv("PC_VOICE_NAME", "en-GB-RyanNeural")
+PC_LANG = os.getenv("PC_LANG", "en")
 
 # Rasm ko'rish (Gemini tekin). FAQAT rasm + izoh yuboriladi — vision.py ga qarang.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

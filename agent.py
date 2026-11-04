@@ -138,7 +138,7 @@ TOOL_CATEGORIES = {
     "loyiha": ["projects_list", "project_status", "project_changes"],
     "kal": ["agenda", "calendar_events", "calendar_add", "calendar_delete"],
     "pc": [
-        "pc_screenshot", "pc_status", "pc_lock", "pc_power", "pc_open_url",
+        "pc_screenshot", "pc_status", "pc_lock", "pc_power", "pc_open_url", "pc_open_app",
         "pc_play_music", "pc_media", "pc_send_file", "pc_clipboard_get", "pc_clipboard_set",
     ],
     "music": ["pc_play_music", "pc_media"],
@@ -234,7 +234,7 @@ _ACTION_CLAIM_RE = re.compile(
 _MUTATING = (
     "add_", "set_", "cancel_", "complete_", "delete_", "digest_add", "digest_remove",
     "calendar_add", "calendar_delete", "tg_send", "tg_leave", "tg_pin", "forget", "remember",
-    "pc_lock", "pc_power", "pc_open_url", "pc_play_music", "pc_media", "cmd_run", "cmd_stop",
+    "pc_lock", "pc_power", "pc_open_url", "pc_open_app", "pc_play_music", "pc_media", "cmd_run", "cmd_stop",
     "pc_clipboard_set",
 )
 
@@ -376,9 +376,34 @@ _PICK_RE = re.compile(
 )
 
 
+# "Open Telegram" / "telegramni och" — modelsiz (ovozda tez; model chatlar ro'yxatini berardi).
+# Ilova nomi Start menyusiga to'liq mos kelsagina — "telegramdan Aziz chatini och" o'tib ketadi.
+_OPEN_APP_RE = re.compile(
+    r"^\s*(?:open|launch|run|och|ochib ber)\s+(.{2,30}?)[.!]?\s*$|"
+    r"^\s*(.{2,30}?)\s*(?:ni|'ni)?\s+(?:och|oching|ochgin|ochib ber|ishga tushir)[.!]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def quick_open_app(text):
+    m = _OPEN_APP_RE.match(text or "")
+    if not m:
+        return None
+    name = (m.group(1) or m.group(2) or "").strip()
+    try:
+        import pc
+        app = pc.find_app(name)
+    except Exception:
+        return None
+    return ("pc_open_app", {"name": name}) if app else None
+
+
 def quick_bridge(text, chat_id=None):
     """(tool, args) yoki None."""
     t = (text or "").strip()
+    app = quick_open_app(t)
+    if app:
+        return app
     if chat_id is not None:
         ts, cands = tools.LAST_CANDIDATES.get(chat_id, (0, []))
         m = _PICK_RE.match(_APOS_RE.sub("'", t))

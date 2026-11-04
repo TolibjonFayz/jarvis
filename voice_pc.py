@@ -47,11 +47,39 @@ def rms(a):
     return float(np.sqrt(np.mean(np.square(a.astype(np.float32))))) if len(a) else 0.0
 
 
+FOLLOW_TIMEOUT = 4.0         # javobdan keyin qayta chaqirmasdan gapirish oynasi
+
+# Jim/shovqinli audioda Whisper shularni o'ylab topadi (2026-11-03: "Thank you." deb yozilgan).
+_HALLUCINATIONS = {
+    "thank you", "thanks", "thank you for watching", "thanks for watching", "you", "bye",
+    "subtitles by the amaraorg community", "продолжение следует", "субтитры сделал dimatorzok",
+    "редактор субтитров асинкевич", "спасибо за просмотр",
+}
+# Chaqiruv so'zi gapga tushib qoladi: "Hei Jarvis" agentga savol bo'lib ketgan edi.
+_WAKE_PREFIX_RE = __import__("re").compile(
+    r"^\W*(?:(?:hey|hei|hay|hai|xey|эй|хей)[\s,.!]*)?(?:jarvis|jarvys|jarviz|djarvis|джарвис|жарвис)\b[\s,.!?]*",
+    __import__("re").IGNORECASE,
+)
+
+
+def clean_text(text):
+    """(matn, holat): holat 'ok' | 'wake_only' | 'noise'."""
+    t = (text or "").strip()
+    norm = "".join(ch for ch in t.lower() if ch.isalnum() or ch.isspace()).strip()
+    if not norm or norm in _HALLUCINATIONS:
+        return "", "noise"
+    rest = _WAKE_PREFIX_RE.sub("", t).strip()
+    if rest != t and len(rest) < 2:
+        return "", "wake_only"
+    return rest, "ok"
+
+
 class Utterance:
     """Signal'dan keyingi bo'laklarni yig'adi va gap tugaganini aniqlaydi (sof mantiq)."""
 
-    def __init__(self, noise):
+    def __init__(self, noise, start_timeout=START_TIMEOUT):
         self.thr = max(noise * 3.0, MIN_SPEECH_RMS)
+        self.start_timeout = start_timeout
         self.frames, self.t = [], 0.0
         self.started, self.silent = False, 0.0
 
@@ -65,7 +93,7 @@ class Utterance:
         elif self.started:
             self.silent += dt
         if not self.started:
-            return "empty" if self.t >= START_TIMEOUT else "more"
+            return "empty" if self.t >= self.start_timeout else "more"
         if self.silent >= END_SILENCE or self.t >= MAX_UTTER:
             return "done"
         return "more"
@@ -185,63 +213,84 @@ class PcVoice:
             if not on:
                 continue
             self._noise = (self._noise + [rms(a)])[-25:]  # ~2 s shovqin fon darajasi
-            hit = False
+            score = 0.0
             if wake:
                 score = self.model.predict(a).get(WAKE_MODEL, 0.0)
-                hit = score >= WAKE_THRESHOLD
-            if hit or self.trigger.is_set():
+            hotkey = self.trigger.is_set()
+            if hotkey or score >= WAKE_THRESHOLD:
                 self.trigger.clear()
+                log.info("PC ovoz: chaqirildi (%s)", "Ctrl+Alt+J" if hotkey else f"wake {score:.2f}")
                 self._session(s)
                 self.model.reset()
-                # javob paytida yig'ilgan eski ovozni tashlaymiz
-                while s.read_available >= CHUNK:
-                    s.read(CHUNK)
+                self._drain(s)
+
+    @staticmethod
+    def _drain(s):
+        """Javob paytida yig'ilgan eski ovozni tashlaydi (o'z ovozini eshitmasin)."""
+        while s.read_available >= CHUNK:
+            s.read(CHUNK)
+
+    def _record(self, s, start_timeout):
+        noise = float(np.median(self._noise)) if self._noise else 0.0
+        u = Utterance(noise, start_timeout)
+        while True:
+            block, _ = s.read(CHUNK)
+            state = u.feed(block[:, 0].copy())
+            if state != "more":
+                break
+        log.info("PC ovoz: sessiya %s, %.1f s, shovqin %.0f, chegara %.0f, eng baland %.0f",
+                 state, u.t, noise, u.thr, max((rms(f) for f in u.frames), default=0))
+        return state, u.audio()
 
     def _session(self, s):
+        """Chaqiruvdan keyin suhbat: javobdan so'ng FOLLOW_TIMEOUT ichida gapirsang —
+        qayta chaqirmasdan davom etadi (Jarvis kabi)."""
         self.busy = True
         try:
-            noise = float(np.median(self._noise)) if self._noise else 0.0
-            _beep(880)
-            u = Utterance(noise)
-            while True:
-                block, _ = s.read(CHUNK)
-                state = u.feed(block[:, 0].copy())
-                if state != "more":
-                    break
-            audio = u.audio()
-            log.info("PC ovoz: sessiya %s, %.1f s, shovqin %.0f, chegara %.0f, eng baland %.0f",
-                     state, u.t, noise, u.thr, max((rms(f) for f in u.frames), default=0))
-            if state == "empty":
-                _beep(440, 90)
-                return
-            _beep(660, 80)
-            self._handle(audio)
+            first = True
+            while self.running:
+                _beep(880) if first else _beep(1046, 60)
+                state, audio = self._record(s, START_TIMEOUT if first else FOLLOW_TIMEOUT)
+                if state == "empty":
+                    if first:
+                        _beep(440, 90)
+                    return
+                _beep(660, 80)
+                if not self._handle(audio):
+                    return
+                first = False
+                self._drain(s)
         except Exception as e:
             log.warning("PC ovoz sessiyasi xatosi: %s", str(e)[:150])
         finally:
             self.busy = False
 
     def _handle(self, audio):
+        """True — suhbat davom etadi (javob berildi yoki faqat chaqiruv so'zi aytildi)."""
         path = _wav(audio)
         try:
-            text = voice.transcribe(path)
+            raw = voice.transcribe(path)
         except Exception as e:
             log.warning("PC ovoz: STT xatosi: %s", str(e)[:120])
             say("Kechirasiz, ovozni tanib bo'lmadi.")
-            return
+            return False
         finally:
             try:
                 os.remove(path)
             except OSError:
                 pass
-        text = (text or "").strip()
-        if len(text) < 2:
-            say("Eshitmadim, qaytaring.")
-            return
-        log.info("PC ovoz: «%s»", text[:120])
+        text, kind = clean_text(raw)
+        log.info("PC ovoz: «%s» -> %s", (raw or "").strip()[:120], kind)
+        if kind == "noise":
+            _beep(440, 90)
+            return False
+        if kind == "wake_only":
+            say("Ha bro, eshitaman.")
+            return True
         reply = self.on_text(text)
         if reply:
             say(reply)
+        return True
 
 
 _instance = None

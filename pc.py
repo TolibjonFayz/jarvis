@@ -131,6 +131,69 @@ def open_url(url):
     return f"🌐 Kompyuterda ochildi: {url}"
 
 
+# --- Dastur ochish (Start menyusidagi ilovalar) ---
+
+# Ovozli "Open Telegram" chatlar ro'yxatini chiqargan edi (2026-11-04) — dastur ochish yo'q edi.
+APP_ALIASES = {
+    "xrom": "chrome", "brauzer": "chrome", "browser": "chrome", "gugl": "chrome",
+    "vs code": "visual studio code", "vscode": "visual studio code", "vskod": "visual studio code",
+    "kod": "visual studio code", "kalkulyator": "calculator", "bloknot": "notepad",
+    "provodnik": "file explorer", "papka": "file explorer", "explorer": "file explorer",
+    "fayllar": "file explorer", "sozlamalar": "settings", "nastroyka": "settings",
+    "telegramm": "telegram", "ворд": "word", "ексел": "excel", "eksel": "excel", "exsel": "excel",
+    "spotifay": "spotify", "edj": "microsoft edge", "edge": "microsoft edge",
+}
+_APP_SKIP = ("uninstall", "reset", "export", "import", "setup", "o'chirish", "readme", "help")
+_apps_cache = {"at": 0.0, "apps": []}
+
+
+def start_apps():
+    """[(nom, AppID)] — Start menyusidan (kesh 1 soat)."""
+    import json
+    import subprocess
+    import time
+    if time.time() - _apps_cache["at"] < 3600 and _apps_cache["apps"]:
+        return _apps_cache["apps"]
+    raw = subprocess.run(
+        ["powershell", "-NoProfile", "-Command",
+         # PowerShell 5.1 OEM kodlashda chiqaradi — UTF-8 bo'lmasa ro'yxat bo'sh qaytardi
+         "[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
+         "Get-StartApps | Select-Object Name, AppID | ConvertTo-Json -Compress"],
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    ).stdout
+    data = json.loads(raw or "[]")
+    data = data if isinstance(data, list) else [data]
+    apps = [(d["Name"], d["AppID"]) for d in data
+            if d.get("Name") and not any(w in d["Name"].lower() for w in _APP_SKIP)]
+    _apps_cache.update(at=time.time(), apps=apps)
+    return apps
+
+
+def find_app(name, apps=None):
+    """So'ralgan nomga mos ilova (nom, AppID) yoki None. Butun so'rov ilova nomiga
+    mos kelishi kerak — "telegramdan Aziz chatini" kabi gap ilova deb olinmaydi."""
+    q = " ".join((name or "").lower().replace("'", "").split())
+    q = APP_ALIASES.get(q, q)
+    if len(q) < 3:
+        return None
+    apps = start_apps() if apps is None else apps
+    cands = [a for a in apps if a[0].lower() == q]
+    cands = cands or [a for a in apps if a[0].lower().startswith(q)]
+    cands = cands or [a for a in apps if q in a[0].lower()]
+    cands = cands or [a for a in apps if a[0].lower().split()[-1] == q]  # "chrome" -> Google Chrome
+    return min(cands, key=lambda a: len(a[0])) if cands else None
+
+
+def open_app(name):
+    import subprocess
+    app = find_app(name)
+    if not app:
+        raise ValueError(f"«{name}» degan dastur Start menyusida topilmadi")
+    subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{app[1]}"])
+    return f"🚀 Kompyuterda ochildi: {app[0]}"
+
+
 # --- Musiqa ---
 
 DEFAULT_MUSIC = "yangi o'zbek qo'shiqlari mix"

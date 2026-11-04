@@ -706,6 +706,16 @@ TOOLS = [
         },
     },
     {
+        "name": "pc_open_app",
+        "description": "Kompyuterda dasturni ochadi (Telegram, Chrome, VS Code, Excel, Word, "
+                       "Spotify, kalkulyator, provodnik...). 'Open Telegram' = shu, chat EMAS",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+    },
+    {
         "name": "unanswered",
         "description": "Shaxsiy Telegram: kimlar javob kutyapti (javob berilmagan shaxsiy xabarlar)",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -1684,6 +1694,13 @@ def execute_tool(name, tool_input, chat_id=None):
             import pc
             try:
                 return FINAL + pc.open_url(tool_input.get("url", ""))
+            except ValueError as e:
+                return FINAL + f"❌ {e}"
+
+        if name == "pc_open_app":
+            import pc
+            try:
+                return FINAL + pc.open_app(tool_input.get("name", ""))
             except ValueError as e:
                 return FINAL + f"❌ {e}"
 

@@ -45,12 +45,62 @@ _hooks = {"respond": None}
 _net_prev = {"t": 0.0, "sent": 0, "recv": 0}
 
 
+_last_poll = [0.0]   # HUD oynasi oxirgi marta holat so'ragan vaqt (ochiqmi?)
+_greeted = [0.0]
+
+
+def hud_open():
+    return time.time() - _last_poll[0] < 10
+
+
+def speak_async(text):
+    """Kompyuter karnayidan (fon oqimida) — ovoz moduli bo'lsa."""
+    def run():
+        try:
+            import voice_pc
+            voice_pc.say(text)
+        except Exception as e:
+            log.info("HUD: ovoz chiqmadi: %s", str(e)[:80])
+    threading.Thread(target=run, name="hud-say", daemon=True).start()
+
+
 def push(kind, text, who="friday"):
-    """kind: chat | voice | mind | radar | system."""
+    """kind: chat | voice | mind | radar | system. Radar/miya ogohlantirishi HUD ochiq
+    bo'lsa ovoz chiqarib ham aytiladi (Jarvis kabi: "Diqqat, ...")."""
     with _lock:
         _event_id[0] += 1
         EVENTS.append({"id": _event_id[0], "ts": time.time(), "kind": kind,
                        "who": who, "text": (text or "")[:1500]})
+    if kind in ("radar", "mind") and hud_open():
+        speak_async(("Diqqat. " if kind == "radar" else "") + text)
+
+
+def _part_of_day(h):
+    return ("Xayrli tong" if 5 <= h < 12 else "Xayrli kun" if h < 17
+            else "Xayrli kech" if h < 23 else "Kech bo'ldi")
+
+
+def greeting(now=None):
+    """Oyna ochilganda aytiladigan qisqa holat (AI'siz, keshdan)."""
+    now = now or datetime.datetime.now()
+    parts = [f"{_part_of_day(now.hour)}, bro. Soat {now:%H:%M}."]
+    w = _cache.get("weather")
+    if w:
+        parts.append(f"Toshkentda {w['temp']} daraja.")
+    today = now.date().isoformat()
+    ag = [a for a in (_cache.get("agenda") or []) if a["day"] == today
+          and (a["time"] == "kun bo'yi" or a["time"][:5] >= f"{now:%H:%M}")]
+    if ag:
+        parts.append(f"Bugun yana {len(ag)} ta reja bor, birinchisi {ag[0]['time'][:5]} da: {ag[0]['title']}.")
+    else:
+        parts.append("Bugun boshqa reja yo'q.")
+    un = _cache.get("unanswered") or []
+    if un:
+        parts.append(f"{un[0]['name']} javob kutyapti" + (f" va yana {len(un) - 1} kishi." if len(un) > 1 else "."))
+    r = _cache.get("radar") or {}
+    if r.get("configured"):
+        parts.append(f"ERP'da {len(r['problems'])} ta muammo." if r.get("problems") else "ERP joyida.")
+    return " ".join(parts)
 
 
 def token():
@@ -169,11 +219,29 @@ def _usage():
     return {"tokens": used, "limit": 200_000}
 
 
+PING_HOSTS = [("Telegram", "api.telegram.org"), ("Groq", "api.groq.com"),
+              ("ERP", "erpclimaventbackend-production.up.railway.app")]
+
+
+def _ping():
+    """TCP ulanish vaqti (ms) — haqiqiy ICMP emas, lekin xizmatgacha yo'lni ko'rsatadi."""
+    import socket
+    out = []
+    for name, host in PING_HOSTS:
+        t = time.time()
+        try:
+            socket.create_connection((host, 443), timeout=5).close()
+            out.append({"name": name, "ms": int((time.time() - t) * 1000)})
+        except OSError:
+            out.append({"name": name, "ms": None})
+    return out
+
+
 SLOW = {  # nom: (funksiya, yangilash oralig'i, soniya)
     "weather": (_weather, 1800), "prayer": (_prayer, 3 * 3600), "agenda": (_agenda, 300),
     "todos": (_todos, 60), "money": (_money, 300), "football": (_football, 1800),
     "unanswered": (_unanswered, 600), "radar": (_radar, 60), "mind": (_mind, 120),
-    "usage": (_usage, 120),
+    "usage": (_usage, 120), "ping": (_ping, 30),
 }
 
 
@@ -193,15 +261,38 @@ def _refresh_loop():
 
 
 _cpu = [0.0]
+_procs = [[]]
+
+
+def _top_procs(n=3):
+    """Eng ko'p CPU yeyayotgan dasturlar (nom bo'yicha jamlangan). process_iter Process
+    obyektlarini keshlaydi — cpu_percent ikkinchi chaqiruvdan to'g'ri ishlaydi."""
+    import psutil
+    agg = {}
+    cores = psutil.cpu_count() or 1
+    for p in psutil.process_iter(["name", "cpu_percent", "memory_info"]):
+        info = p.info
+        name = (info.get("name") or "?").removesuffix(".exe")
+        if name in ("System Idle Process", "Idle", "System"):
+            continue
+        a = agg.setdefault(name, {"name": name, "cpu": 0.0, "mem": 0})
+        a["cpu"] += (info.get("cpu_percent") or 0) / cores
+        a["mem"] += getattr(info.get("memory_info"), "rss", 0) or 0
+    top = sorted(agg.values(), key=lambda a: (a["cpu"], a["mem"]), reverse=True)[:n]
+    return [{"name": a["name"], "cpu": round(a["cpu"], 1), "mem_mb": a["mem"] // 2**20} for a in top]
 
 
 def _cpu_loop():
     """cpu_percent(interval=None) bir necha oqimdan chaqirilganda doim 0 qaytardi —
-    alohida oqimda 1 s oraliqda o'lchaymiz."""
+    alohida oqimda 1 s oraliqda o'lchaymiz (har 3-sida jarayonlar ham)."""
     import psutil
+    i = 0
     while True:
         try:
             _cpu[0] = psutil.cpu_percent(interval=1)
+            i += 1
+            if i % 3 == 0 and hud_open():
+                _procs[0] = _top_procs()
         except Exception:
             time.sleep(5)
 
@@ -222,7 +313,7 @@ def _system():
             "disk": disk.percent, "disk_free": round(disk.free / 2**30),
             "net_up": int(up), "net_down": int(down),
             "uptime": int(now - psutil.boot_time()),
-            "battery": bat.percent if bat else None}
+            "battery": bat.percent if bat else None, "procs": _procs[0]}
 
 
 def _music():
@@ -240,7 +331,8 @@ def _music():
 def _voice():
     try:
         import voice_pc
-        return {"state": voice_pc.STATE, "ready": bool(voice_pc._instance and voice_pc._instance.running)}
+        return {"state": voice_pc.STATE, "level": round(voice_pc.LEVEL, 2),
+                "ready": bool(voice_pc._instance and voice_pc._instance.running)}
     except Exception:
         return {"state": "off", "ready": False}
 
@@ -306,14 +398,27 @@ def run_action(name, arg=""):
     return fn(arg)
 
 
-def chat(text):
+def chat(text, speak=False):
     text = (text or "").strip()[:2000]
     if not text:
         raise ValueError("bo'sh xabar")
     push("chat", text, who="you")
     reply = _hooks["respond"](text) if _hooks["respond"] else "FRIDAY hali ulanmagan"
     push("chat", reply)
+    if speak:
+        speak_async(reply)
     return reply
+
+
+def greet(force=False):
+    """Oyna ochilganda bir marta (20 daqiqada ko'pi bilan) — ovoz chiqarib salomlashadi."""
+    if not force and time.time() - _greeted[0] < 20 * 60:
+        return None
+    _greeted[0] = time.time()
+    text = greeting()
+    push("system", text)
+    speak_async(text)
+    return text
 
 
 # --- HTTP server ---
@@ -352,6 +457,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authed():
                 return self._send(401, {"error": "token"})
             if path == "/api/state":
+                _last_poll[0] = time.time()
                 return self._send(200, state())
             if path == "/api/events":
                 try:
@@ -375,7 +481,9 @@ class Handler(BaseHTTPRequestHandler):
             n = min(int(self.headers.get("Content-Length") or 0), 20000)
             body = json.loads(self.rfile.read(n) or b"{}")
             if self.path == "/api/chat":
-                return self._send(200, {"reply": chat(body.get("text", ""))})
+                return self._send(200, {"reply": chat(body.get("text", ""), bool(body.get("speak")))})
+            if self.path == "/api/greet":
+                return self._send(200, {"text": greet(bool(body.get("force")))})
             if self.path == "/api/action":
                 msg = run_action(body.get("name", ""), body.get("arg", ""))
                 push("system", msg)
@@ -393,7 +501,8 @@ class Handler(BaseHTTPRequestHandler):
 def open_window():
     os.makedirs(PROFILE_DIR, exist_ok=True)
     subprocess.Popen([EDGE, f"--app={url()}", f"--user-data-dir={PROFILE_DIR}",
-                      "--window-size=1500,920", "--no-first-run", "--no-default-browser-check"])
+                      "--window-size=1500,920", "--no-first-run", "--no-default-browser-check",
+                      "--autoplay-policy=no-user-gesture-required"])  # ochilish tovushi uchun
 
 
 ICON_PATH = os.path.join(config.DATA_DIR, "friday.ico")
@@ -423,7 +532,8 @@ def make_shortcut():
         "$d=[Environment]::GetFolderPath('Desktop');"
         "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'FRIDAY.lnk'));"
         f"$s.TargetPath='{EDGE}';"
-        f"$s.Arguments='--app={url()} --user-data-dir=\"{PROFILE_DIR}\" --window-size=1500,920';"
+        f"$s.Arguments='--app={url()} --user-data-dir=\"{PROFILE_DIR}\" --window-size=1500,920 "
+        "--autoplay-policy=no-user-gesture-required';"
         f"$s.IconLocation='{ICON_PATH},0';"
         "$s.Description='FRIDAY HUD (Ctrl+Alt+F)';$s.Save();Join-Path $d 'FRIDAY.lnk'"
     )

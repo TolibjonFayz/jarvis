@@ -127,6 +127,8 @@ def play_mp3(path):
 
 # HUD arc reactor animatsiyasi uchun: idle | listening | thinking | speaking
 STATE = "idle"
+LEVEL = 0.0          # mikrofon balandligi 0..1 (tinglash paytida)
+_say_lock = threading.Lock()  # ovoz ustma-ust chiqmasin (HUD javobi + ogohlantirish)
 
 
 def _set_state(s):
@@ -139,13 +141,14 @@ def say(text):
     if not speak:
         return
     mp3 = os.path.join(tempfile.gettempdir(), f"friday_pc_{int(time.time() * 1000)}.mp3")
-    prev = STATE
-    try:
-        asyncio.run(voice.tts(speak, mp3))
-        _set_state("speaking")
-        play_mp3(mp3)
-    finally:
-        _set_state(prev if prev != "speaking" else "idle")
+    with _say_lock:
+        prev = STATE
+        try:
+            asyncio.run(voice.tts(speak, mp3))
+            _set_state("speaking")
+            play_mp3(mp3)
+        finally:
+            _set_state(prev if prev != "speaking" else "idle")
         try:
             os.remove(mp3)
         except OSError:
@@ -265,11 +268,15 @@ class PcVoice:
     def _record(self, s, start_timeout):
         noise = float(np.median(self._noise)) if self._noise else 0.0
         u = Utterance(noise, start_timeout)
+        global LEVEL
         while True:
             block, _ = s.read(CHUNK)
-            state = u.feed(block[:, 0].copy())
+            chunk = block[:, 0].copy()
+            LEVEL = min(1.0, rms(chunk) / 3000)  # HUD to'lqini uchun
+            state = u.feed(chunk)
             if state != "more":
                 break
+        LEVEL = 0.0
         log.info("PC ovoz: sessiya %s, %.1f s, shovqin %.0f, chegara %.0f, eng baland %.0f",
                  state, u.t, noise, u.thr, max((rms(f) for f in u.frames), default=0))
         return state, u.audio()

@@ -69,5 +69,50 @@ def test_unknown_action_and_no_power(server):
 
 def test_static_index_and_no_traversal(server):
     code, body = req(server, "GET", "/", token=False)
-    assert code == 200 and b"FRIDAY HUD" in body
+    assert code == 200 and b"<title>FRIDAY</title>" in body
     assert req(server, "GET", "/../config.py", token=False)[0] == 404
+
+
+import datetime  # noqa: E402
+
+
+def test_greeting_from_cache(monkeypatch):
+    hud._cache.clear()
+    hud._cache.update(
+        weather={"temp": 18},
+        agenda=[{"kind": "event", "day": "2026-11-04", "time": "21:00–22:00", "title": "Meeting"}],
+        unanswered=[{"name": "Umid aka", "minutes": 3000, "unread": 1}],
+        radar={"configured": True, "on": True, "problems": []},
+    )
+    text = hud.greeting(datetime.datetime(2026, 11, 4, 10, 30))
+    assert text.startswith("Xayrli tong, bro. Soat 10:30.")
+    assert "18 daraja" in text and "21:00 da: Meeting" in text
+    assert "Umid aka javob kutyapti" in text and "ERP joyida" in text
+
+
+def test_greet_once_per_20_min(monkeypatch, server):
+    said = []
+    monkeypatch.setattr(hud, "speak_async", said.append)
+    hud._greeted[0] = 0
+    assert req(server, "POST", "/api/greet", {})[1]["text"]
+    assert req(server, "POST", "/api/greet", {})[1]["text"] is None   # takrorlamaydi
+    assert len(said) == 1
+
+
+def test_chat_speaks_only_when_asked(monkeypatch, server):
+    said = []
+    monkeypatch.setattr(hud, "speak_async", said.append)
+    req(server, "POST", "/api/chat", {"text": "salom"})
+    req(server, "POST", "/api/chat", {"text": "salom", "speak": True})
+    assert said == ["javob: salom"]
+
+
+def test_alerts_spoken_only_while_hud_open(monkeypatch):
+    said = []
+    monkeypatch.setattr(hud, "speak_async", said.append)
+    hud._last_poll[0] = 0
+    hud.push("radar", "prod API javob bermayapti")
+    hud._last_poll[0] = __import__("time").time()
+    hud.push("radar", "prod API javob bermayapti")
+    hud.push("chat", "oddiy javob")                       # chat ovozsiz
+    assert said == ["Diqqat. prod API javob bermayapti"]

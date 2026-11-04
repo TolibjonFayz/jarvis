@@ -1,8 +1,9 @@
-"""Kompyuterda ovoz: "Hey Jarvis" yoki Ctrl+Alt+J -> gapirasan -> FRIDAY karnaydan javob beradi.
+"""Kompyuterda ovoz: Ctrl+Alt+J (yoki ixtiyoriy "Hey Jarvis") -> gapirasan -> FRIDAY javob beradi.
 
 Oqim (bot jarayonida, alohida fon oqimlarida):
-- mikrofon doim o'qiladi (16 kHz), lekin LOKAL: openWakeWord "hey_jarvis" modeli faqat
-  uyg'otuvchi so'zni qidiradi, ovoz hech qayerga ketmaydi;
+- default: mikrofon FAQAT Ctrl+Alt+J dan keyin ochiladi va suhbat tugashi bilan yopiladi
+  (doim ochiq mikrofon egasiga yoqmadi + Windows musiqani pasaytirardi);
+- /ovoz wake on: doimiy tinglash, openWakeWord "hey_jarvis" LOKAL uyg'otuvchi so'zni qidiradi;
 - uyg'otuvchi so'z yoki hotkey -> qisqa signal -> gap yoziladi (jimlik bilan tugaydi) ->
   Groq Whisper (Telegram ovozli xabari bilan bir xil) -> agent -> edge-tts -> karnay.
 - Javob paytida mikrofon e'tiborsiz qoldiriladi (o'z ovozidan uyg'onmasin).
@@ -167,7 +168,9 @@ class PcVoice:
         ts, on, wake = self._cfg
         if time.time() - ts > 3:
             on = memory.get_setting(self.chat_id, "pc_voice_on", "1") == "1"
-            wake = memory.get_setting(self.chat_id, "pc_wake_on", "1") == "1"
+            # Doimiy tinglash default O'CHIQ: ochiq mikrofon egasiga yoqmadi va Windows uni
+            # "qo'ng'iroq" deb musiqani pasaytirardi (communications ducking, 2026-11-04).
+            wake = memory.get_setting(self.chat_id, "pc_wake_on", "0") == "1"
             self._cfg = (time.time(), on, wake)
         return on, wake
 
@@ -193,29 +196,46 @@ class PcVoice:
         return Model(wakeword_models=[WAKE_MODEL], inference_framework="onnx")
 
     def _mic_loop(self):
+        """Ikki rejim: wake o'chiq (default) — mikrofon FAQAT Ctrl+Alt+J dan keyin ochiladi
+        va suhbat tugashi bilan yopiladi; wake yoqiq — doimiy tinglab "Hey Jarvis" kutadi."""
         import sounddevice as sd
+        log.info("PC ovoz: tayyor (Ctrl+Alt+J)")
         while self.running:
             try:
-                if self.model is None:
-                    self.model = self._load_model()
+                on, wake = self._settings()
+                if on and wake:
+                    if self.model is None:
+                        self.model = self._load_model()
+                    with sd.InputStream(samplerate=SR, channels=1, dtype="int16", blocksize=CHUNK) as s:
+                        log.info("PC ovoz: doimiy tinglash yoqildi (Hey Jarvis)")
+                        self._listen_forever(s)
+                    log.info("PC ovoz: doimiy tinglash o'chdi, mikrofon yopildi")
+                    continue
+                if not self.trigger.wait(timeout=2):
+                    continue
+                self.trigger.clear()
+                if not self._settings()[0]:
+                    continue
                 with sd.InputStream(samplerate=SR, channels=1, dtype="int16", blocksize=CHUNK) as s:
-                    log.info("PC ovoz: tinglayapman (Hey Jarvis / Ctrl+Alt+J)")
-                    self._listen_forever(s)
+                    log.info("PC ovoz: chaqirildi (Ctrl+Alt+J), mikrofon ochildi")
+                    # shovqin darajasi uchun ~0.25 s (signal'dan oldin)
+                    self._noise = [rms(s.read(CHUNK)[0][:, 0]) for _ in range(3)]
+                    self._session(s)
+                log.info("PC ovoz: mikrofon yopildi")
             except Exception as e:
                 log.warning("PC ovoz: mikrofon xatosi, 30 s dan keyin qayta: %s", str(e)[:120])
                 time.sleep(30)
 
     def _listen_forever(self, s):
+        """Doimiy rejim; wake yoki ovoz o'chirilsa qaytadi (mikrofon yopiladi)."""
         while self.running:
             block, _ = s.read(CHUNK)
             a = block[:, 0]
             on, wake = self._settings()
-            if not on:
-                continue
+            if not (on and wake):
+                return
             self._noise = (self._noise + [rms(a)])[-25:]  # ~2 s shovqin fon darajasi
-            score = 0.0
-            if wake:
-                score = self.model.predict(a).get(WAKE_MODEL, 0.0)
+            score = self.model.predict(a).get(WAKE_MODEL, 0.0)
             hotkey = self.trigger.is_set()
             if hotkey or score >= WAKE_THRESHOLD:
                 self.trigger.clear()
@@ -314,11 +334,13 @@ def start(on_text, chat_id):
 
 def status_text(chat_id):
     on = memory.get_setting(chat_id, "pc_voice_on", "1") == "1"
-    wake = memory.get_setting(chat_id, "pc_wake_on", "1") == "1"
+    wake = memory.get_setting(chat_id, "pc_wake_on", "0") == "1"
     alive = bool(_instance and _instance.running)
+    mic = ("Mikrofon doim ochiq (lokal tinglaydi) — Windows musiqani pasaytirishi mumkin."
+           if wake else "Mikrofon faqat Ctrl+Alt+J dan keyin ochiladi, suhbat tugashi bilan yopiladi.")
     lines = [f"🎙 **Kompyuter ovozi**: {'yoqilgan' if on else 'o‘chirilgan'}"
              + ("" if alive else " (ishga tushmagan — logni ko'ring)"),
-             "Chaqirish: Ctrl+Alt+J" + (" yoki «Hey Jarvis»" if wake else " (wake-word o'chiq)"),
-             "Mikrofon lokal tinglanadi; faqat chaqirgandan keyingi gap Whisper'ga ketadi.",
+             "Chaqirish: Ctrl+Alt+J" + (" yoki «Hey Jarvis»" if wake else ""),
+             mic,
              "\n/ovoz on|off · /ovoz wake on|off · /ovoz test — karnayni sinash"]
     return "\n".join(lines)

@@ -1721,7 +1721,7 @@ BOT_COMMANDS = [
     ("city", "Man City: o'yinlar, jadval, natija"),
     ("miya", "Proaktiv miya: bugun nima o'yladi"),
     ("radar", "ERP prod holati (API, Hikvision, amoCRM)"),
-    ("ovoz", "Kompyuter ovozi: Hey Jarvis / Ctrl+Alt+J"),
+    ("ovoz", "Kompyuter ovozi: Ctrl+Alt+J"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),

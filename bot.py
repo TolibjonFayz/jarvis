@@ -678,6 +678,8 @@ async def _send_proactive(bot, chat_id, alerts):
             await bot.send_message(chat_id, "🧠 " + fmt.to_plain(a["text"]), reply_markup=kb)
         # Egasi javob yozsa, model nima haqida gap ketayotganini bilsin
         memory.add_message(chat_id, "assistant", a["text"])
+        import hud
+        hud.push("mind", a["text"])
 
 
 async def proactive_job(context: ContextTypes.DEFAULT_TYPE):
@@ -748,8 +750,10 @@ async def radar_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         log.warning("Radar xatosi: %s", str(e)[:150])
         return
+    import hud
     for text in msgs:
         log.info("Radar: %s", text[:120])
+        hud.push("radar", text.replace("**", ""))
         await _send_md(context.bot, owner, text)
 
 
@@ -766,36 +770,44 @@ async def cmd_radar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_md(context.bot, chat_id, await asyncio.to_thread(radar.status_text, chat_id))
 
 
-def _pc_voice_reply(app, loop, text):
-    """Kompyuter ovozi (fon oqimida): agent javobi + Telegram'ga nusxa va tasdiq tugmalari."""
+def _pc_voice_reply(app, loop, text, source="voice"):
+    """Kompyuterdan (ovoz yoki HUD oynasi, fon oqimida): agent javobi; ovozda savol-javob
+    Telegram'ga nusxalanadi, ikkalasida ham tasdiq tugmalari Telegram'da chiqadi."""
     from types import SimpleNamespace
     owner = config.OWNER_ID
     try:
         reply = agent.respond(owner, text)
     except Exception as e:
-        log.warning("PC ovoz: javob xatosi: %s", str(e)[:150])
+        log.warning("PC %s: javob xatosi: %s", source, str(e)[:150])
         s = str(e).lower()
         return ("Groq chegarasi urildi, bir daqiqadan keyin qayta so'rang."
                 if "429" in s or "rate_limit" in s else "Kechirasiz, xato yuz berdi.")
-    needs_ok = any(p["chat_id"] == owner and not p["shown"] for p in jtools.PENDING_SENDS.values())
+    needs_ok = (any(p["chat_id"] == owner and not p["shown"] for p in jtools.PENDING_SENDS.values())
+                or any(f["chat_id"] == owner for f in jtools.PENDING_FILES))
+    if source == "hud" and not needs_ok:
+        return reply
 
     async def mirror():
-        msg = await app.bot.send_message(owner, f"🎙 PC: «{text}»")
-        await _send_md(app.bot, owner, reply)
+        head = f"🎙 PC: «{text}»" if source == "voice" else f"🖥 HUD: «{text}»"
+        msg = await app.bot.send_message(owner, head)
+        if source == "voice":
+            await _send_md(app.bot, owner, reply)
         await _show_pending_sends(SimpleNamespace(effective_message=msg, effective_chat=msg.chat), owner)
 
     try:
         asyncio.run_coroutine_threadsafe(mirror(), loop).result(timeout=90)
     except Exception as e:
-        log.warning("PC ovoz: Telegram nusxasi yuborilmadi: %s", str(e)[:120])
+        log.warning("PC %s: Telegram nusxasi yuborilmadi: %s", source, str(e)[:120])
     return reply + (" Tasdiqlash tugmasi Telegram'da." if needs_ok else "")
 
 
 async def _post_init(app):
     await _set_commands(app)
+    import hud
     import voice_pc
     loop = asyncio.get_running_loop()
     voice_pc.start(lambda text: _pc_voice_reply(app, loop, text), config.OWNER_ID)
+    hud.start(lambda text: _pc_voice_reply(app, loop, text, source="hud"))
 
 
 async def cmd_voice_pc(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -812,6 +824,19 @@ async def cmd_voice_pc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif args[:1] == ["test"]:
         await asyncio.to_thread(voice_pc.say, "Salom bro, men FRIDAY. Karnay ishlayapti.")
     await _send_md(context.bot, chat_id, voice_pc.status_text(chat_id))
+
+
+async def cmd_hud(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/hud — kompyuterda FRIDAY HUD oynasini ochadi (va ish stoli yorlig'ini yangilaydi)."""
+    if not _authorized(update):
+        return
+    import hud
+    try:
+        await asyncio.to_thread(hud.make_shortcut)
+        await asyncio.to_thread(hud.open_window)
+        await update.message.reply_text("🖥 HUD kompyuterda ochildi. Keyin: Ctrl+Alt+F yoki ish stolidagi FRIDAY yorlig'i.")
+    except Exception as e:
+        await update.message.reply_text(f"HUD ochilmadi: {e}")
 
 
 async def tgsched_job(context: ContextTypes.DEFAULT_TYPE):
@@ -1722,6 +1747,7 @@ BOT_COMMANDS = [
     ("miya", "Proaktiv miya: bugun nima o'yladi"),
     ("radar", "ERP prod holati (API, Hikvision, amoCRM)"),
     ("ovoz", "Kompyuter ovozi: Ctrl+Alt+J"),
+    ("hud", "Kompyuterda FRIDAY HUD oynasi"),
     ("hafta", "Haftalik hisobot"),
     ("dayjest", "Kanallar xulosasi"),
     ("javobsiz", "Kim javob kutyapti"),
@@ -1808,6 +1834,7 @@ def main():
     app.add_handler(CommandHandler("miya", cmd_mind))
     app.add_handler(CommandHandler("radar", cmd_radar))
     app.add_handler(CommandHandler("ovoz", cmd_voice_pc))
+    app.add_handler(CommandHandler("hud", cmd_hud))
     app.add_handler(CallbackQueryHandler(on_button))
     # Shaxsiy chat -> FRIDAY agent; guruhlar -> faqat moderatsiya.
     app.add_handler(

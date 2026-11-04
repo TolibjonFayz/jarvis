@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="uz" data-mode="jarvis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FRIDAY HUD</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #03070d;
+  --bg2: #071422;
+  --panel: rgba(8, 24, 40, 0.55);
+  --line: rgba(120, 200, 255, 0.16);
+  --text: #d8ecff;
+  --dim: #6f8aa3;
+  --acc: #38d6ff;
+  --acc2: #1e7bff;
+  --warn: #ffb020;
+  --bad: #ff4d5e;
+  --good: #3dffb0;
+  --glow: 0 0 18px color-mix(in srgb, var(--acc) 55%, transparent);
+  --mono: "Share Tech Mono", ui-monospace, Consolas, monospace;
+  --sans: "Rajdhani", "Segoe UI", system-ui, sans-serif;
+}
+html[data-mode="friday"] { --acc: #ffb547; --acc2: #ff6a3d; --line: rgba(255, 190, 120, 0.16); --bg2: #160d06; --panel: rgba(36, 20, 8, 0.55); }
+html[data-mode="edith"]  { --acc: #ff3b5c; --acc2: #ff9aa9; --line: rgba(255, 110, 130, 0.16); --bg2: #170609; --panel: rgba(40, 8, 14, 0.55); }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background:
+    radial-gradient(ellipse at 50% 42%, var(--bg2) 0%, var(--bg) 62%) fixed,
+    var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  overflow: hidden;
+  transition: background .6s;
+}
+/* katakli fon + skan chiziqlari */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,.55), transparent 75%);
+  opacity: .45;
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
+  background: repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 3px);
+}
+
+.app {
+  position: relative; z-index: 1; height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(420px, 1.25fr) minmax(300px, 1fr);
+  grid-template-rows: auto 1fr 250px;
+  gap: 14px; padding: 14px 18px;
+}
+
+/* ---------- top bar ---------- */
+.top { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.brand svg { width: 42px; height: 42px; filter: drop-shadow(var(--glow)); }
+.brand h1 { margin: 0; font-size: 26px; letter-spacing: .32em; font-weight: 700; color: var(--acc); text-shadow: var(--glow); white-space: nowrap; }
+.brand small { display: block; font-family: var(--mono); font-size: 11px; color: var(--dim); letter-spacing: .12em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clock { text-align: center; }
+.clock .t { font-family: var(--mono); font-size: 38px; letter-spacing: .08em; color: #fff; text-shadow: var(--glow); line-height: 1; }
+.clock .d { font-size: 13px; color: var(--dim); letter-spacing: .25em; text-transform: uppercase; margin-top: 4px; }
+.topright { display: flex; align-items: center; gap: 18px; }
+.chip { font-family: var(--mono); font-size: 13px; color: var(--dim); text-align: right; line-height: 1.35; }
+.chip b { color: var(--text); font-weight: 400; font-size: 16px; }
+.modes { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.modes button {
+  background: transparent; color: var(--dim); border: 0; padding: 8px 12px; cursor: pointer;
+  font-family: var(--sans); font-weight: 700; letter-spacing: .18em; font-size: 12px;
+}
+.modes button.on { color: var(--bg); background: var(--acc); box-shadow: var(--glow); }
+
+/* ---------- panels ---------- */
+.col { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow: hidden; }
+.panel {
+  position: relative; background: var(--panel); border: 1px solid var(--line);
+  padding: 12px 14px 12px; backdrop-filter: blur(6px);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+.panel::before {
+  content: ""; position: absolute; left: 0; top: 0; width: 34px; height: 2px; background: var(--acc); box-shadow: var(--glow);
+}
+.panel h3 {
+  margin: 0 0 10px; font-size: 12px; letter-spacing: .3em; color: var(--acc); font-weight: 700;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.panel h3 span { font-family: var(--mono); letter-spacing: .05em; color: var(--dim); font-weight: 400; }
+.grow { flex: 1; min-height: 0; overflow: auto; }
+.grow::-webkit-scrollbar, .feed::-webkit-scrollbar { width: 4px; }
+.grow::-webkit-scrollbar-thumb, .feed::-webkit-scrollbar-thumb { background: var(--line); }
+
+.meter { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 10px; margin: 7px 0; font-family: var(--mono); font-size: 13px; }
+.meter .lbl { color: var(--dim); }
+.meter .val { text-align: right; }
+.bar { height: 6px; background: rgba(255,255,255,.06); position: relative; overflow: hidden; }
+.bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, var(--acc2), var(--acc)); box-shadow: var(--glow); transition: width .8s; }
+.bar.warn i { background: linear-gradient(90deg, #b36b00, var(--warn)); }
+.bar.bad i { background: linear-gradient(90deg, #8a1020, var(--bad)); }
+canvas.spark { width: 100%; height: 46px; display: block; margin-top: 6px; }
+.kv { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 13px; color: var(--dim); margin-top: 6px; }
+.kv b { color: var(--text); font-weight: 400; }
+
+.status { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good); box-shadow: 0 0 10px var(--good); animation: pulse 2s infinite; flex: none; }
+.dot.bad { background: var(--bad); box-shadow: 0 0 12px var(--bad); }
+.dot.off { background: var(--dim); box-shadow: none; animation: none; }
+.problems { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; color: #ffc2c8; }
+.problems li { margin: 4px 0; }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+.list li:last-child { border-bottom: 0; }
+.list .tm { font-family: var(--mono); color: var(--acc); font-size: 13px; }
+.list .tag { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: .1em; }
+.list.plain li { grid-template-columns: 14px 1fr; }
+.list.plain li::before { content: "▸"; color: var(--acc); }
+.empty { color: var(--dim); font-size: 13px; font-family: var(--mono); }
+
+.music .title { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.music .artist { color: var(--dim); font-size: 13px; }
+.controls { display: flex; gap: 6px; margin-top: 10px; }
+.btn {
+  background: transparent; border: 1px solid var(--line); color: var(--text); cursor: pointer;
+  font-family: var(--sans); font-weight: 600; letter-spacing: .12em; font-size: 12px; padding: 7px 10px;
+  transition: all .2s;
+}
+.btn:hover { border-color: var(--acc); color: var(--acc); box-shadow: var(--glow); }
+.btn.primary { border-color: var(--acc); color: var(--acc); }
+
+/* ---------- center: arc reactor ---------- */
+.center { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; min-height: 0; }
+.reactor { position: relative; width: min(46vh, 430px); aspect-ratio: 1; }
+.reactor svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ring { transform-origin: 250px 250px; }
+.r1 { animation: spin 40s linear infinite; }
+.r2 { animation: spin 26s linear infinite reverse; }
+.r3 { animation: spin 14s linear infinite; }
+.r4 { animation: spin 60s linear infinite reverse; }
+.core { transform-origin: 250px 250px; animation: breathe 4s ease-in-out infinite; }
+[data-voice="listening"] .r3 { animation-duration: 2.5s; }
+[data-voice="listening"] .core { animation: listen 1s ease-in-out infinite; }
+[data-voice="thinking"] .r1 { animation-duration: 4s; }
+[data-voice="thinking"] .r2 { animation-duration: 3s; }
+[data-voice="speaking"] .core { animation: speak .35s ease-in-out infinite alternate; }
+.reactor .label {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;
+}
+.reactor .label .name { font-size: 22px; font-weight: 700; letter-spacing: .4em; color: #fff; text-shadow: var(--glow); padding-left: .4em; }
+.reactor .label .name { text-shadow: 0 0 6px #000, 0 0 14px #000, var(--glow); }
+.vstate { font-family: var(--mono); font-size: 14px; color: var(--acc); letter-spacing: .3em; margin-top: 10px; text-shadow: var(--glow); min-height: 1.3em; }
+[data-voice="listening"] .vstate, [data-voice="speaking"] .vstate { animation: pulse 1s infinite; }
+.talk {
+  margin-top: 18px; display: flex; gap: 10px; align-items: center;
+}
+.talk .btn { padding: 11px 22px; font-size: 13px; }
+.hint { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 10px; letter-spacing: .08em; }
+.orbit { position: absolute; inset: 0; pointer-events: none; }
+.orbit .sat {
+  position: absolute; font-family: var(--mono); font-size: 12px; color: var(--dim); text-align: center;
+}
+.orbit .sat b { display: block; font-size: 20px; color: var(--text); font-weight: 400; }
+
+/* ---------- bottom console ---------- */
+.console { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 300px; gap: 14px; min-height: 0; }
+.feedwrap { display: flex; flex-direction: column; min-height: 0; }
+.feed { flex: 1; overflow-y: auto; font-size: 14px; padding-right: 6px; }
+.msg { display: grid; grid-template-columns: 70px 92px 1fr; gap: 8px; padding: 4px 0; line-height: 1.4; }
+.msg .ts { font-family: var(--mono); color: var(--dim); font-size: 12px; padding-top: 2px; }
+.msg .who { font-family: var(--mono); font-size: 12px; letter-spacing: .1em; padding-top: 2px; color: var(--acc); }
+.msg.you .who { color: var(--text); }
+.msg.mind .who { color: var(--warn); }
+.msg.radar .who { color: var(--bad); }
+.msg.system .who { color: var(--dim); }
+.msg .tx { white-space: pre-wrap; word-break: break-word; }
+.msg.system .tx { color: var(--dim); font-family: var(--mono); font-size: 13px; }
+.msg .tx b { color: #fff; font-weight: 600; }
+.msg .tx code { font-family: var(--mono); color: var(--acc); background: rgba(255,255,255,.05); padding: 0 4px; }
+.msg .tx pre.code { font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,.4); border-left: 2px solid var(--acc); padding: 8px; margin: 4px 0; white-space: pre-wrap; }
+.msg .tx a { color: var(--acc); }
+.inputrow { display: flex; gap: 8px; margin-top: 10px; }
+.inputrow input {
+  flex: 1; background: rgba(0,0,0,.35); border: 1px solid var(--line); color: var(--text);
+  font-family: var(--mono); font-size: 14px; padding: 11px 12px; outline: none;
+}
+.inputrow input:focus { border-color: var(--acc); box-shadow: var(--glow); }
+.quick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
+.quick .btn { padding: 10px 8px; }
+.typing::after { content: "▍"; animation: blink 1s steps(1) infinite; color: var(--acc); }
+
+/* ---------- boot ---------- */
+.boot {
+  position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center;
+  transition: opacity .8s; font-family: var(--mono);
+}
+.boot.done { opacity: 0; pointer-events: none; }
+.boot pre { color: var(--acc); font-size: 15px; line-height: 1.7; text-shadow: var(--glow); min-width: 520px; margin: 0; }
+.toast {
+  position: fixed; right: 22px; bottom: 280px; z-index: 60; background: var(--panel); border: 1px solid var(--acc);
+  padding: 10px 14px; font-family: var(--mono); font-size: 13px; box-shadow: var(--glow); opacity: 0; transform: translateY(8px);
+  transition: all .3s; max-width: 380px;
+}
+.toast.show { opacity: 1; transform: none; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes breathe { 0%,100% { transform: scale(1); opacity: .9 } 50% { transform: scale(1.04); opacity: 1 } }
+@keyframes listen { 0%,100% { transform: scale(1) } 50% { transform: scale(1.12) } }
+@keyframes speak { from { transform: scale(.97) } to { transform: scale(1.09) } }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+@keyframes blink { 50% { opacity: 0 } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+@media (max-width: 1150px) {
+  .app { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto auto 250px; overflow: auto; height: auto; }
+  body { overflow: auto; }
+  .center { grid-column: 1 / -1; grid-row: 2; padding: 10px 0; }
+}
+</style>
+</head>
+<body>
+<div class="boot" id="boot"><pre id="bootText"></pre></div>
+
+<div class="app" id="app">
+  <!-- TOP -->
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle cx="50" cy="50" r="44" fill="none" stroke="var(--acc)" stroke-width="3" opacity=".5"/>
+        <circle cx="50" cy="50" r="30" fill="none" stroke="var(--acc)" stroke-width="6" stroke-dasharray="14 8"/>
+        <circle cx="50" cy="50" r="13" fill="var(--acc)"/>
+      </svg>
+      <div>
+        <h1 id="brandName">J.A.R.V.I.S.</h1>
+        <small id="brandSub">Just A Rather Very Intelligent System</small>
+      </div>
+    </div>
+    <div class="clock"><div class="t" id="clock">--:--:--</div><div class="d" id="date">—</div></div>
+    <div class="topright">
+      <div class="chip" id="weatherChip">OB-HAVO<br><b>—</b></div>
+      <div class="chip" id="prayerChip">NAMOZ<br><b>—</b></div>
+      <div class="modes" role="tablist" aria-label="Rejim">
+        <button data-m="jarvis">JARVIS</button>
+        <button data-m="friday">FRIDAY</button>
+        <button data-m="edith">EDITH</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- LEFT -->
+  <section class="col">
+    <div class="panel">
+      <h3>TIZIM <span id="uptime">—</span></h3>
+      <div class="meter"><span class="lbl">CPU</span><div class="bar" id="cpuBar"><i></i></div><span class="val" id="cpuVal">—</span></div>
+      <div class="meter"><span class="lbl">RAM</span><div class="bar" id="ramBar"><i></i></div><span class="val" id="ramVal">—</span></div>
+      <div class="meter"><span class="lbl">DISK</span><div class="bar" id="diskBar"><i></i></div><span class="val" id="diskVal">—</span></div>
+      <canvas class="spark" id="spark" width="600" height="92"></canvas>
+      <div class="kv"><span>▲ <b id="netUp">—</b></span><span>▼ <b id="netDown">—</b></span><span id="batt"></span></div>
+    </div>
+    <div class="panel">
+      <h3>ERP RADAR <span id="radarHint">EDITH</span></h3>
+      <div class="status"><span class="dot" id="radarDot"></span><span id="radarText">—</span></div>
+      <ul class="problems" id="radarList"></ul>
+      <div class="controls"><button class="btn" data-act="radar">TEKSHIR</button></div>
+    </div>
+    <div class="panel music grow" id="musicPanel">
+      <h3>MUSIQA <span id="musicApp"></span></h3>
+      <div class="title" id="musicTitle">Hech narsa o'ynamayapti</div>
+      <div class="artist" id="musicArtist">&nbsp;</div>
+      <div class="meter" style="grid-template-columns: 1fr 52px"><div class="bar" id="musicBar"><i></i></div><span class="val" id="musicTime"></span></div>
+      <div class="controls">
+        <button class="btn" data-act="media" data-arg="prev" aria-label="Oldingi">⏮</button>
+        <button class="btn primary" data-act="media" data-arg="play" aria-label="Pauza/davom">⏯</button>
+        <button class="btn" data-act="media" data-arg="next" aria-label="Keyingi">⏭</button>
+        <button class="btn" data-act="media" data-arg="down" aria-label="Ovozni pasaytirish">－</button>
+        <button class="btn" data-act="media" data-arg="up" aria-label="Ovozni ko'tarish">＋</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- CENTER -->
+  <section class="center" id="center" data-voice="idle">
+    <div class="reactor">
+      <svg viewBox="0 0 500 500" aria-hidden="true">
+        <defs>
+          <radialGradient id="coreG" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="35%" stop-color="var(--acc)"/>
+            <stop offset="100%" stop-color="var(--acc)" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <g class="ring r4"><circle cx="250" cy="250" r="236" fill="none" stroke="var(--acc)" stroke-width="1" stroke-dasharray="2 10" opacity=".55"/></g>
+        <g class="ring r1">
+          <circle cx="250" cy="250" r="212" fill="none" stroke="var(--acc)" stroke-width="2" stroke-dasharray="120 30 40 30" opacity=".7"/>
+        </g>
+        <g class="ring r2">
+          <circle cx="250" cy="250" r="182" fill="none" stroke="var(--acc2)" stroke-width="10" stroke-dasharray="6 14" opacity=".55"/>
+        </g>
+        <g id="cpuArc"><circle cx="250" cy="250" r="160" fill="none" stroke="var(--line)" stroke-width="4"/>
+          <circle id="cpuArcFill" cx="250" cy="250" r="160" fill="none" stroke="var(--acc)" stroke-width="4" stroke-linecap="round"
+                  stroke-dasharray="0 1006" transform="rotate(-90 250 250)" style="transition: stroke-dasharray .8s; filter: drop-shadow(0 0 6px var(--acc))"/></g>
+        <g class="ring r3">
+          <circle cx="250" cy="250" r="136" fill="none" stroke="var(--acc)" stroke-width="3" stroke-dasharray="60 25" opacity=".85"/>
+        </g>
+        <g class="core">
+          <circle cx="250" cy="250" r="110" fill="url(#coreG)" opacity=".35"/>
+          <circle cx="250" cy="250" r="78" fill="none" stroke="var(--acc)" stroke-width="2" opacity=".9"/>
+          <g fill="var(--acc)" opacity=".75">
+            <rect x="244" y="176" width="12" height="26"/><rect x="244" y="298" width="12" height="26"/>
+            <rect x="176" y="244" width="26" height="12"/><rect x="298" y="244" width="26" height="12"/>
+          </g>
+          <circle cx="250" cy="250" r="46" fill="url(#coreG)"/>
+        </g>
+      </svg>
+      <div class="label"><div class="name" id="coreName">JARVIS</div></div>
+    </div>
+    <div class="vstate" id="voiceState">TAYYOR</div>
+    <div class="talk">
+      <button class="btn primary" data-act="listen" id="talkBtn">🎙 GAPIR</button>
+      <button class="btn" data-act="mind">🧠 O'YLA</button>
+    </div>
+    <div class="hint">CTRL+ALT+J — ovoz · CTRL+ALT+F — shu oyna · / — yozish</div>
+  </section>
+
+  <!-- RIGHT -->
+  <section class="col">
+    <div class="panel grow">
+      <h3>BUGUN VA ERTAGA <span id="agendaCount"></span></h3>
+      <ul class="list" id="agenda"></ul>
+      <h3 style="margin-top:14px">VAZIFALAR <span id="todoCount"></span></h3>
+      <ul class="list plain" id="todos"></ul>
+    </div>
+    <div class="panel">
+      <h3>ALOQA <span>javob kutyapti</span></h3>
+      <ul class="list" id="comms"></ul>
+    </div>
+    <div class="panel">
+      <h3>RADAR · MIYA · CITY</h3>
+      <div class="kv"><span>Miya bugun</span><b id="mindStat">—</b></div>
+      <div class="kv"><span>Man City</span><b id="cityStat">—</b></div>
+      <div class="kv"><span>Shu oy xarajat</span><b id="moneyStat">—</b></div>
+      <div class="meter" style="grid-template-columns: 52px 1fr 52px"><span class="lbl">TOKEN</span><div class="bar" id="tokBar"><i></i></div><span class="val" id="tokVal">—</span></div>
+    </div>
+  </section>
+
+  <!-- CONSOLE -->
+  <section class="console">
+    <div class="panel feedwrap">
+      <h3>KONSOL <span id="conn">ulanmoqda…</span></h3>
+      <div class="feed" id="feed" aria-live="polite"></div>
+      <form class="inputrow" id="chatForm" autocomplete="off">
+        <input id="chatInput" placeholder="FRIDAY'ga yozing… (masalan: ertaga nima rejam bor?)" aria-label="Xabar">
+        <button class="btn primary" type="submit">YUBOR</button>
+      </form>
+    </div>
+    <div class="panel">
+      <h3>TEZKOR</h3>
+      <div class="quick">
+        <button class="btn" data-act="open" data-arg="Telegram">TELEGRAM</button>
+        <button class="btn" data-act="open" data-arg="chrome">CHROME</button>
+        <button class="btn" data-act="open" data-arg="vs code">VS CODE</button>
+        <button class="btn" data-act="open" data-arg="excel">EXCEL</button>
+        <button class="btn" data-act="open" data-arg="file explorer">PAPKALAR</button>
+        <button class="btn" data-act="open" data-arg="calculator">KALKULYATOR</button>
+        <button class="btn" data-act="media" data-arg="mute">🔇 OVOZ</button>
+        <button class="btn" data-act="lock">🔒 QULFLASH</button>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(() => {
+  const TOKEN = new URLSearchParams(location.hash.slice(1)).get("t") || "";
+  const $ = (id) => document.getElementById(id);
+  const MODES = {
+    jarvis: { name: "J.A.R.V.I.S.", core: "JARVIS", sub: "Just A Rather Very Intelligent System",
+              boot: ["J.A.R.V.I.S. tizimi ishga tushmoqda", "Xush kelibsiz, ser."] },
+    friday: { name: "F.R.I.D.A.Y.", core: "FRIDAY", sub: "Female Replacement Intelligent Digital Assistant Youth",
+              boot: ["F.R.I.D.A.Y. onlayn", "Salom, boss. Hammasi nazoratda."] },
+    edith:  { name: "E.D.I.T.H.", core: "EDITH", sub: "Even Dead, I'm The Hero",
+              boot: ["E.D.I.T.H. xavfsizlik protokoli", "Tahdid kuzatuvi faol."] },
+  };
+  const DAYS = ["Yakshanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba"];
+  const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+  const VOICE = { idle: "TAYYOR", listening: "TINGLAYAPMAN…", thinking: "O'YLAYAPMAN…", speaking: "GAPIRYAPMAN…", off: "OVOZ O'CHIQ" };
+
+  let mode = "jarvis";
+  try { mode = localStorage.getItem("hud-mode") || "jarvis"; } catch (e) {}
+  let lastEvent = 0, cpuHist = [], state = null;
+
+  // ---------- helpers ----------
+  const api = async (path, body) => {
+    const r = await fetch(path, {
+      method: body ? "POST" : "GET",
+      headers: { "X-HUD-Token": TOKEN, "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.status);
+    return j;
+  };
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // FRIDAY javoblari Markdown'da: xavfsiz (avval escape) kichik renderer
+  const md = (s) => esc(s)
+    .replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, c) => `<pre class="code">${c}</pre>`)
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/^#{1,4}\s*(.+)$/gm, "<b>$1</b>")
+    .replace(/^\s*[-*]\s+/gm, "• ");
+  const pad = (n) => String(n).padStart(2, "0");
+  const som = (n) => Math.round(n || 0).toLocaleString("ru-RU").replace(/,/g, " ") + " so'm";
+  const bytes = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + " MB/s" : b > 1024 ? (b / 1024).toFixed(0) + " KB/s" : (b | 0) + " B/s";
+  const dur = (s) => { s = Math.max(0, s | 0); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+    return d ? `${d}k ${h}s` : h ? `${h}s ${m}d` : `${m} daq`; };
+  const until = (ts) => { const s = ts - Date.now() / 1000; if (s < 0) return "boshlandi";
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h >= 24 ? `${Math.floor(h / 24)} kun` : h ? `${h}s ${m}d` : `${m} daq`; };
+  const setBar = (id, pct) => { const el = $(id); el.querySelector("i").style.width = Math.min(100, pct) + "%";
+    el.classList.toggle("warn", pct >= 75 && pct < 90); el.classList.toggle("bad", pct >= 90); };
+  const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 3200); };
+
+  // ---------- mode ----------
+  function applyMode(m) {
+    mode = MODES[m] ? m : "jarvis";
+    document.documentElement.dataset.mode = mode;
+    $("brandName").textContent = MODES[mode].name;
+    $("brandSub").textContent = MODES[mode].sub;
+    $("coreName").textContent = MODES[mode].core;
+    document.querySelectorAll(".modes button").forEach((b) => b.classList.toggle("on", b.dataset.m === mode));
+    try { localStorage.setItem("hud-mode", mode); } catch (e) {}
+  }
+  document.querySelectorAll(".modes button").forEach((b) => b.addEventListener("click", () => {
+    applyMode(b.dataset.m);
+    addMsg({ kind: "system", who: "friday", text: `${MODES[mode].name} rejimi. ${MODES[mode].boot[1]}`, ts: Date.now() / 1000 });
+  }));
+
+  // ---------- boot ----------
+  async function boot() {
+    applyMode(mode);
+    const lines = [
+      `> ${MODES[mode].boot[0]}...`,
+      "> Neyron yadro ............ [OK]",
+      "> Ovoz moduli ............. [OK]",
+      "> ERP radar ............... [OK]",
+      "> Proaktiv miya ........... [OK]",
+      `> ${MODES[mode].boot[1]}`,
+    ];
+    const pre = $("bootText");
+    for (const l of lines) {
+      for (let i = 0; i <= l.length; i += 2) { pre.textContent = pre.textContent.replace(/[^\n]*$/, l.slice(0, i)); await new Promise((r) => setTimeout(r, 6)); }
+      pre.textContent += "\n";
+      await new Promise((r) => setTimeout(r, 90));
+    }
+    await new Promise((r) => setTimeout(r, 350));
+    $("boot").classList.add("done");
+  }
+
+  // ---------- clock ----------
+  function tick() {
+    const d = new Date();
+    $("clock").textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    $("date").textContent = `${DAYS[d.getDay()]} · ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+    if (state && state.prayer) {
+      const now = Date.now() / 1000, next = state.prayer.find((p) => p.at > now);
+      if (next) $("prayerChip").innerHTML = `${esc(next.name.toUpperCase())}<br><b>${until(next.at)}</b>`;
+    }
+  }
+
+  // ---------- state render ----------
+  function render(s) {
+    state = s;
+    const sys = s.system;
+    setBar("cpuBar", sys.cpu); $("cpuVal").textContent = sys.cpu.toFixed(0) + "%";
+    setBar("ramBar", sys.ram); $("ramVal").textContent = sys.ram.toFixed(0) + "%";
+    setBar("diskBar", sys.disk); $("diskVal").textContent = sys.disk.toFixed(0) + "%";
+    $("netUp").textContent = bytes(sys.net_up); $("netDown").textContent = bytes(sys.net_down);
+    $("uptime").textContent = "UP " + dur(sys.uptime);
+    $("batt").textContent = sys.battery != null ? `⚡ ${sys.battery.toFixed(0)}%` : `RAM ${sys.ram_used}/${sys.ram_total} GB`;
+    $("cpuArcFill").setAttribute("stroke-dasharray", `${(sys.cpu / 100 * 1005).toFixed(0)} 1006`);
+    cpuHist.push(sys.cpu); if (cpuHist.length > 60) cpuHist.shift(); spark();
+
+    const v = s.voice || { state: "off" };
+    $("center").dataset.voice = v.ready ? v.state : "off";
+    $("voiceState").textContent = VOICE[v.ready ? v.state : "off"] || "TAYYOR";
+    $("talkBtn").disabled = !v.ready;
+
+    if (s.weather) {
+      $("weatherChip").innerHTML = `TOSHKENT · ${esc(s.weather.desc.toUpperCase())}<br><b>${s.weather.temp}°C</b> · his ${s.weather.feels}°`;
+    }
+
+    const r = s.radar;
+    if (!r || !r.configured) { $("radarDot").className = "dot off"; $("radarText").textContent = "Sozlanmagan"; $("radarList").innerHTML = ""; }
+    else if (!r.on) { $("radarDot").className = "dot off"; $("radarText").textContent = "O'chirilgan"; $("radarList").innerHTML = ""; }
+    else if (r.problems.length) {
+      $("radarDot").className = "dot bad"; $("radarText").textContent = `${r.problems.length} ta muammo`;
+      $("radarList").innerHTML = r.problems.map((p) => `<li>▸ ${esc(p)}</li>`).join("");
+    } else { $("radarDot").className = "dot"; $("radarText").textContent = "Prod: hammasi joyida"; $("radarList").innerHTML = ""; }
+
+    const m = s.music;
+    if (m && m.title) {
+      $("musicTitle").textContent = m.title; $("musicArtist").textContent = m.artist || " ";
+      $("musicApp").textContent = (m.playing ? "▶ " : "❚❚ ") + (m.app || "");
+      setBar("musicBar", m.duration ? m.position / m.duration * 100 : 0);
+      $("musicTime").textContent = m.duration ? `${(m.position / 60 | 0)}:${pad(m.position % 60 | 0)}` : "";
+    } else {
+      $("musicTitle").textContent = "Hech narsa o'ynamayapti"; $("musicArtist").textContent = " ";
+      $("musicApp").textContent = ""; setBar("musicBar", 0); $("musicTime").textContent = "";
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const ag = s.agenda || [];
+    $("agendaCount").textContent = ag.length ? ag.length : "";
+    $("agenda").innerHTML = ag.length ? ag.map((a) => `<li><span class="tm">${esc(a.time === "kun bo'yi" ? "kun" : a.time.slice(0, 5))}</span>
+      <span>${esc(a.title)}<br><span class="tag">${a.day === today ? "BUGUN" : "ERTAGA"} · ${a.kind === "event" ? "KALENDAR" : "ESLATMA"}</span></span></li>`).join("")
+      : `<li class="empty" style="display:block">Reja yo'q — erkin kun.</li>`;
+    const td = s.todos || [];
+    $("todoCount").textContent = td.length ? td.length : "";
+    $("todos").innerHTML = td.length ? td.map((t) => `<li><span>${esc(t)}</span></li>`).join("") : `<li class="empty" style="display:block">Ochiq vazifa yo'q.</li>`;
+
+    const un = s.unanswered;
+    $("comms").innerHTML = un == null ? `<li class="empty" style="display:block">Yuklanmoqda…</li>`
+      : un.length ? un.slice(0, 5).map((u) => `<li><span class="tm">${u.minutes >= 1440 ? (u.minutes / 1440 | 0) + " kun" : (u.minutes / 60 | 0) + " soat"}</span>
+          <span>${esc(u.name)}${u.unread ? ` <span class="tag">· ${u.unread} O'QILMAGAN</span>` : ""}</span></li>`).join("")
+      : `<li class="empty" style="display:block">Hammaga javob berilgan ✓</li>`;
+
+    $("mindStat").textContent = s.mind ? `${s.mind.sent} aytdi / ${s.mind.thought} o'yladi` : "—";
+    $("cityStat").textContent = s.football ? `${s.football.title} · ${until(s.football.at)}` : "—";
+    $("moneyStat").textContent = s.money ? som(s.money.spent) : "—";
+    if (s.usage) { const p = s.usage.tokens / s.usage.limit * 100; setBar("tokBar", p); $("tokVal").textContent = p.toFixed(0) + "%"; }
+  }
+
+  function spark() {
+    const c = $("spark"), g = c.getContext("2d"), w = c.width, h = c.height;
+    const acc = getComputedStyle(document.documentElement).getPropertyValue("--acc").trim();
+    g.clearRect(0, 0, w, h);
+    if (cpuHist.length < 2) return;
+    g.beginPath();
+    cpuHist.forEach((v, i) => { const x = i / 59 * w, y = h - v / 100 * (h - 6) - 3; i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.strokeStyle = acc; g.lineWidth = 2; g.shadowColor = acc; g.shadowBlur = 8; g.stroke();
+    g.lineTo((cpuHist.length - 1) / 59 * w, h); g.lineTo(0, h); g.closePath();
+    g.globalAlpha = .12; g.fillStyle = acc; g.fill(); g.globalAlpha = 1; g.shadowBlur = 0;
+  }
+
+  // ---------- feed ----------
+  function addMsg(e) {
+    const feed = $("feed"), d = new Date(e.ts * 1000);
+    const who = e.who === "you" ? "SIZ" : e.kind === "mind" ? "MIYA" : e.kind === "radar" ? "RADAR" : e.kind === "system" ? "TIZIM" : MODES[mode].core;
+    const div = document.createElement("div");
+    div.className = `msg ${e.who === "you" ? "you" : e.kind}`;
+    div.innerHTML = `<span class="ts">${pad(d.getHours())}:${pad(d.getMinutes())}</span><span class="who">${who}${e.kind === "voice" ? " 🎙" : ""}</span><span class="tx">${e.who === "you" ? esc(e.text) : md(e.text)}</span>`;
+    const stick = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 30;
+    feed.appendChild(div);
+    while (feed.children.length > 150) feed.firstChild.remove();
+    if (stick) feed.scrollTop = feed.scrollHeight;
+    return div;
+  }
+
+  // Birinchi yuklashda chat tarixi ham ko'rsatiladi; keyin chat'ni sahifa o'zi chiqaradi
+  let firstPoll = true;
+  async function pollEvents() {
+    try {
+      const evs = await api(`/api/events?since=${lastEvent}`);
+      evs.forEach((e) => { lastEvent = Math.max(lastEvent, e.id); if (firstPoll || e.kind !== "chat") addMsg(e); });
+      firstPoll = false;
+    } catch (e) {}
+  }
+
+  async function pollState() {
+    try {
+      render(await api("/api/state"));
+      $("conn").textContent = "ONLAYN";
+    } catch (e) {
+      $("conn").textContent = String(e.message) === "token" ? "TOKEN XATO — yorliqdan oching" : "ALOQA YO'Q";
+    }
+  }
+
+  // ---------- chat & actions ----------
+  $("chatForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const inp = $("chatInput"), text = inp.value.trim();
+    if (!text) return;
+    inp.value = "";
+    addMsg({ who: "you", kind: "chat", text, ts: Date.now() / 1000 });
+    const pending = addMsg({ who: "friday", kind: "chat", text: "", ts: Date.now() / 1000 });
+    pending.querySelector(".tx").classList.add("typing");
+    $("center").dataset.voice = "thinking"; $("voiceState").textContent = VOICE.thinking;
+    try {
+      const r = await api("/api/chat", { text });
+      pending.querySelector(".tx").classList.remove("typing");
+      pending.querySelector(".tx").innerHTML = md(r.reply);
+    } catch (e) {
+      pending.querySelector(".tx").classList.remove("typing");
+      pending.querySelector(".tx").textContent = "⚠ " + e.message;
+    }
+    // chat voqealarini lentadan qayta chiqarmaslik uchun
+    const evs = await api(`/api/events?since=${lastEvent}`).catch(() => []);
+    evs.forEach((e) => { lastEvent = Math.max(lastEvent, e.id); if (e.kind !== "chat") addMsg(e); });
+    $("feed").scrollTop = $("feed").scrollHeight;
+  });
+
+  document.addEventListener("click", async (ev) => {
+    const b = ev.target.closest("[data-act]");
+    if (!b) return;
+    b.disabled = true;
+    try {
+      const r = await api("/api/action", { name: b.dataset.act, arg: b.dataset.arg || "" });
+      if (b.dataset.act !== "media") toast(r.message);
+    } catch (e) { toast("⚠ " + e.message); }
+    finally { setTimeout(() => (b.disabled = false), 400); }
+  });
+
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "/" && document.activeElement !== $("chatInput")) { ev.preventDefault(); $("chatInput").focus(); }
+    if (ev.key === "Escape") $("chatInput").blur();
+  });
+
+  // ---------- start ----------
+  boot();
+  tick(); setInterval(tick, 1000);
+  pollState(); setInterval(pollState, 1500);
+  pollEvents(); setInterval(pollEvents, 2000);
+})();
+</script>
+</body>
+</html>

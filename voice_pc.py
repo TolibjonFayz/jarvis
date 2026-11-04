@@ -125,15 +125,27 @@ def play_mp3(path):
     _mci(f"close {alias}")
 
 
+# HUD arc reactor animatsiyasi uchun: idle | listening | thinking | speaking
+STATE = "idle"
+
+
+def _set_state(s):
+    global STATE
+    STATE = s
+
+
 def say(text):
     speak = voice.speakable(text, limit=400)
     if not speak:
         return
     mp3 = os.path.join(tempfile.gettempdir(), f"friday_pc_{int(time.time() * 1000)}.mp3")
+    prev = STATE
     try:
         asyncio.run(voice.tts(speak, mp3))
+        _set_state("speaking")
         play_mp3(mp3)
     finally:
+        _set_state(prev if prev != "speaking" else "idle")
         try:
             os.remove(mp3)
         except OSError:
@@ -270,12 +282,14 @@ class PcVoice:
             first = True
             while self.running:
                 _beep(880) if first else _beep(1046, 60)
+                _set_state("listening")
                 state, audio = self._record(s, START_TIMEOUT if first else FOLLOW_TIMEOUT)
                 if state == "empty":
                     if first:
                         _beep(440, 90)
                     return
                 _beep(660, 80)
+                _set_state("thinking")
                 if not self._handle(audio):
                     return
                 first = False
@@ -284,6 +298,7 @@ class PcVoice:
             log.warning("PC ovoz sessiyasi xatosi: %s", str(e)[:150])
         finally:
             self.busy = False
+            _set_state("idle")
 
     def _handle(self, audio):
         """True — suhbat davom etadi (javob berildi yoki faqat chaqiruv so'zi aytildi)."""
@@ -307,8 +322,18 @@ class PcVoice:
         if kind == "wake_only":
             say("Ha bro, eshitaman.")
             return True
+        try:
+            import hud
+            hud.push("voice", text, who="you")
+        except Exception:
+            pass
         reply = self.on_text(text)
         if reply:
+            try:
+                import hud
+                hud.push("voice", reply)
+            except Exception:
+                pass
             say(reply)
         return True
 

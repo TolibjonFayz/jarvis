@@ -81,13 +81,13 @@ def test_greeting_from_cache(monkeypatch):
     hud._cache.update(
         weather={"temp": 18},
         agenda=[{"kind": "event", "day": "2026-11-04", "time": "21:00–22:00", "title": "Meeting"}],
-        unanswered=[{"name": "Umid aka", "minutes": 3000, "unread": 1}],
+        unanswered=[{"name": "Sardor aka", "minutes": 3000, "unread": 1}],
         radar={"configured": True, "on": True, "problems": []},
     )
     text = hud.greeting(datetime.datetime(2026, 11, 4, 10, 30))
     assert text.startswith("Xayrli tong, bro. Soat 10:30.")
     assert "18 daraja" in text and "21:00 da: Meeting" in text
-    assert "Umid aka javob kutyapti" in text and "ERP joyida" in text
+    assert "Sardor aka javob kutyapti" in text and "ERP joyida" in text
 
 
 def test_greet_once_per_20_min(monkeypatch, server):

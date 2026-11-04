@@ -162,3 +162,22 @@ def test_money_flow_null_field_salvaged(llm):
 ])
 def test_eval_found_routes(text, cats):
     assert agent.forced_categories(text) == cats
+
+
+def test_web_route_searches_even_if_model_answers_from_memory(llm, monkeypatch):
+    # 2026-11-04: "Avengers Doomsday" — required rejimida model qidirmasdan
+    # "e'lon qilinmagan" deb yozdi va shu javob ketdi. Endi savolning o'zi qidiriladi.
+    class StaleAnswer(Exception):
+        body = {"error": {"code": "tool_use_failed",
+                          "failed_generation": "Avengers Doomsday hozircha e'lon qilinmagan."}}
+
+        def __str__(self):
+            return "Error code: 400 - tool_use_failed"
+
+    seen = {}
+    monkeypatch.setattr(agent, "execute_tool",
+                        lambda name, args, chat_id=None: seen.update({name: args}) or "Doomsday: 18.12.2026")
+    llm(StaleAnswer(), reply("Film 18-dekabr 2026 da chiqadi."))
+    out = agent._tool_loop(CHAT, [], "tell me about Avengers Doomsday", ["web"], require=True)
+    assert seen == {"web_search": {"query": "tell me about Avengers Doomsday"}}
+    assert "2026" in out

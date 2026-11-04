@@ -103,3 +103,21 @@ def test_follow_up_window_is_shorter():
     u = Utterance(50, start_timeout=voice_pc.FOLLOW_TIMEOUT)
     states = [u.feed(c) for c in quiet(4.2)]
     assert states[-1] == "empty"
+
+
+@pytest.mark.parametrize("text,cats", [
+    ("Bro, tell me about Avengers Doomsday. Do you have any spoilers?", ["web"]),  # 2026-11-04
+    ("When is the new GTA 6 release?", ["web"]),
+    ("Who won the Ballon d'Or?", ["web"]),
+    ("Yangi Batman filmi qachon chiqadi?", ["web"]),
+    ("Hey, I have a meeting tomorrow at 9pm. Write this and remind me this, alright?", ["kal", "esl"]),
+    ("remind me to call mom at 6", ["esl", "todo"]),
+])
+def test_english_routes(text, cats):
+    assert agent.forced_categories(text) == cats
+
+
+def test_glued_open_and_hi_jarvis(monkeypatch):
+    monkeypatch.setattr(pc, "start_apps", lambda: APPS + [("Microsoft Edge", "MSEdge")])
+    assert agent.quick_open_app("OpenEdge") == ("pc_open_app", {"name": "Edge"})
+    assert voice_pc.clean_text("Hi Jarvis") == ("", "wake_only")

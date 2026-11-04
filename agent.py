@@ -196,7 +196,12 @@ _FORCED_ROUTES = [
     (re.compile(r"\bpin\b|pin qil|chiqib ket|dan chiq|tark et", re.IGNORECASE), ["tg"]),
     (re.compile(r"dayjest|daydjest|digest|kanal", re.IGNORECASE), ["dayjest", "tg"]),
     # "todolarni o'chir" — egasi takroriy eslatmalarni ham "todo" deydi: ikkalasi birga.
-    (re.compile(r"eslat|uyg.?ot|todo|to-do|vazifa", re.IGNORECASE), ["esl", "todo"]),
+    # "Meeting tomorrow 9pm, remind me" (ovoz, 2026-11-04) faqat kalendarga tushib, eslatma
+    # qo'yilmagan edi — uchrashuv + eslat birga bo'lsa ikkala kategoriya.
+    (re.compile(r"(eslat|remind).{0,80}(uchrashuv|meeting|kalendar|calendar|tadbir)|"
+                r"(uchrashuv|meeting|kalendar|calendar|tadbir).{0,80}(eslat|remind)",
+                re.IGNORECASE | re.DOTALL), ["kal", "esl"]),
+    (re.compile(r"eslat|uyg.?ot|todo|to-do|vazifa|remind|wake me", re.IGNORECASE), ["esl", "todo"]),
     (re.compile(r"javob berma|javobsiz|javob kut", re.IGNORECASE), ["tg"]),
     # Ruxsat berilgan buyruqlar — loyihadan OLDIN ("git pull" dagi "git" loyihaga ketmasin).
     (re.compile(r"ishga tushir|\bbuild\b|testlar\w*|git pull|pull qil|dev server|serverni|buyruqlar",
@@ -217,7 +222,12 @@ _FORCED_ROUTES = [
                 r"oltin\s*to.?p|reyting|turnir\s*jadval|\bliga|premer|real\s*madrid|barsa|"
                 r"barselona|barcelona|\bpsg\b|messi|ronaldu|yangilik|so.?nggi\s*(xabar|holat)|"
                 r"hozir(gi)?\s*(holat|kim|qayer|narx)|rostdan.{0,60}\?|haqiqatan.{0,60}\?|"
-                r"narxi\s*qancha|qancha\s*turadi|qachon\s*chiq|chiqdimi|yangi\s*versiya",
+                r"narxi\s*qancha|qancha\s*turadi|qachon\s*chiq|chiqdimi|yangi\s*versiya|"
+                # Inglizcha va kino/serial/o'yin: "Avengers Doomsday" ni "e'lon qilinmagan" degan
+                r"\bkino|\bfilm|serial|treyler|trailer|premyera|spoiler|spoyler|\bmovie|"
+                r"\bseason|\bepisode|release|tell me about|\bnews\b|\blatest\b|who is|who won|"
+                r"which (club|team)|plays for|how much|\bprice|\binjur|\btransfer|coach|"
+                r"\bceo\b|president",
                 re.IGNORECASE), ["web"]),
     # Oxirida: "kompyuterda nima qildim" yuqorida loyihaga ketadi.
     (re.compile(r"ekran|skrinshot|screenshot|kompyuter|noutbuk|\bpc\b|qulfla|uxlat|"
@@ -386,7 +396,8 @@ _OPEN_APP_RE = re.compile(
 
 
 def quick_open_app(text):
-    m = _OPEN_APP_RE.match(text or "")
+    t = re.sub(r"^\s*[Oo]pen(?=[A-Z])", "open ", text or "")  # Whisper: "OpenEdge"
+    m = _OPEN_APP_RE.match(t)
     if not m:
         return None
     name = (m.group(1) or m.group(2) or "").strip()
@@ -460,6 +471,7 @@ def build_system(chat_id, user_text, router=False):
         # Model bilimi ~2024 da to'xtagan: "Messi PSG'da", eski tarkib/jarohatlarni aytardi.
         "Ichki bilimlaring ESKI (2024 gacha): kim qayerda o'ynashi/ishlashi, lavozim, "
         "tarkib, jarohat, natija, narx, versiya haqida faqat qidiruv natijasiga tayan. "
+        "Kompyuterda egang seni ovoz bilan 'Hey Jarvis' deb chaqiradi — bu SEN, tuzatma. "
         "Faktlarni fonda o'zing eslab "
         "qolasan — 'eslab qol deng' deb so'rama. "
         f"Egang haqida: {mem_text}. "
@@ -650,6 +662,11 @@ def _tool_loop(chat_id, history, user_text, cats, require=False):
                 said = _failed_text(e)
                 if salv:
                     calls = [(f"salv{step}_{i}", n, json.dumps(a)) for i, (n, a) in enumerate(salv)]
+                    content = ""
+                elif said and require and step == 0 and "web_search" in allowed:
+                    # Dolzarb savolda model qidirish o'rniga eski bilimidan javob yozgan edi
+                    # ("Avengers Doomsday e'lon qilinmagan", 2026-11-04). Savolning o'zi bilan qidiramiz.
+                    calls = [("forced0", "web_search", json.dumps({"query": user_text[:200]}))]
                     content = ""
                 elif said:
                     # tool_choice=required, model esa SAVOL bermoqchi edi ("qaysi qo'shiq?").

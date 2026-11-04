@@ -57,7 +57,7 @@ _HALLUCINATIONS = {
 }
 # Chaqiruv so'zi gapga tushib qoladi: "Hei Jarvis" agentga savol bo'lib ketgan edi.
 _WAKE_PREFIX_RE = __import__("re").compile(
-    r"^\W*(?:(?:hey|hei|hay|hai|xey|эй|хей)[\s,.!]*)?(?:jarvis|jarvys|jarviz|djarvis|джарвис|жарвис)\b[\s,.!?]*",
+    r"^\W*(?:(?:hey|hei|hay|hai|hi|xey|эй|хей)[\s,.!]*)?(?:jarvis|jarvys|jarviz|djarvis|джарвис|жарвис)\b[\s,.!?]*",
     __import__("re").IGNORECASE,
 )
 
